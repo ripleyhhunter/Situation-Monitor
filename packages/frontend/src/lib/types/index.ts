@@ -16,7 +16,9 @@ export type DataSource =
   | 'alertdc'
   | 'nws'
   | 'wmata'
-  | 'airnow';
+  | 'airnow'
+  | 'openmhz'
+  | 'scanner';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 
@@ -90,6 +92,34 @@ export interface AirQuality {
   description?: string;
 }
 
+// Scanner Call types
+export type ScannerCallType = 'dispatch' | 'tactical' | 'ems' | 'fireground' | 'command' | 'hazmat' | 'other';
+
+export interface ScannerCall {
+  id: string;
+  systemId: string;
+  talkgroup: number;
+  talkgroupAlpha: string;
+  talkgroupDescription?: string;
+  talkgroupTag?: string;
+  talkgroupGroup?: string;
+  timestamp: string;
+  duration: number;
+  frequency?: number;
+  audioUrl: string;
+  type: IncidentType;
+  callType: ScannerCallType;
+  severity: 1 | 2 | 3 | 4 | 5;
+  sources?: Array<{ src: number; time: number }>;
+}
+
+export interface ScannerStatus {
+  systemId: string;
+  isActive: boolean;
+  lastCallTime?: string;
+  recentCallCount: number;
+}
+
 // SSE Event types
 export type SSEEventType =
   | 'incident:new'
@@ -100,6 +130,8 @@ export type SSEEventType =
   | 'weather:clear'
   | 'transit:update'
   | 'aqi:update'
+  | 'scanner:call'
+  | 'scanner:status'
   | 'heartbeat'
   | 'connected';
 
@@ -130,11 +162,19 @@ export interface MapState {
   };
 }
 
-// Scanner links
+// Scanner Feed types
 export interface ScannerFeed {
   id: string;
   name: string;
   description: string;
-  url: string;
-  type: 'broadcastify' | 'openmhz' | 'other';
+  region: 'dc' | 'md' | 'va' | 'metro';
+  type: 'fire' | 'ems' | 'police' | 'airport' | 'transit' | 'mixed';
+  provider: 'broadcastify' | 'openmhz' | 'zeno' | 'icecast';
+  streamUrl?: string;
+  embedUrl?: string;
+  webUrl: string;
+  feedId?: string;
+  isLive: boolean;
+  encrypted: boolean;
+  priority: number;
 }

@@ -6,7 +6,8 @@ import {
   SCANNER_RESOURCES,
   type ScannerFeed,
 } from '../config/scanner-feeds.js';
-import { openMHzFetcher } from '../fetchers/openmhz.js';
+import { dcfdRealtimeFetcher } from '../fetchers/openmhz-realtime.js';
+import { aggregator } from '../services/aggregator.js';
 import logger from '../logger.js';
 
 const router = Router();
@@ -50,26 +51,70 @@ router.get('/feeds/:id', (req: Request, res: Response) => {
 
 /**
  * GET /api/scanner/calls
- * Returns recent scanner calls from OpenMHz
+ * Returns recent scanner calls from the real-time fetcher
  */
-router.get('/calls', async (req: Request, res: Response) => {
-  try {
-    const result = await openMHzFetcher.fetch();
+router.get('/calls', (req: Request, res: Response) => {
+  const { since, limit, talkgroup } = req.query;
 
-    if (!result.success) {
-      return res.status(503).json({
-        error: 'Scanner call data unavailable',
-        message: result.error,
-      });
+  try {
+    let calls = aggregator.getScannerCalls();
+
+    // Filter by since timestamp if specified
+    if (since) {
+      const sinceDate = new Date(since as string);
+      calls = calls.filter((c) => new Date(c.timestamp) >= sinceDate);
     }
 
+    // Filter by talkgroup if specified
+    if (talkgroup) {
+      const tg = parseInt(talkgroup as string, 10);
+      calls = calls.filter((c) => c.talkgroup === tg);
+    }
+
+    // Limit results
+    const maxResults = Math.min(parseInt(limit as string, 10) || 50, 100);
+    calls = calls.slice(0, maxResults);
+
+    const status = aggregator.getScannerStatus();
+
     res.json({
-      calls: result.data || [],
-      total: result.data?.length || 0,
-      timestamp: result.timestamp,
+      calls,
+      total: calls.length,
+      timestamp: new Date().toISOString(),
+      status: {
+        systemId: status.systemId,
+        lastCallTime: status.lastCallTime,
+        totalCalls: status.callCount,
+      },
     });
   } catch (error) {
     logger.error('Failed to fetch scanner calls', { error });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/scanner/calls/live
+ * Returns only the most recent calls (last 5 minutes)
+ */
+router.get('/calls/live', (req: Request, res: Response) => {
+  try {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const calls = aggregator.getScannerCallsSince(fiveMinutesAgo);
+    const status = aggregator.getScannerStatus();
+
+    res.json({
+      calls,
+      total: calls.length,
+      timestamp: new Date().toISOString(),
+      isLive: true,
+      status: {
+        systemId: status.systemId,
+        lastCallTime: status.lastCallTime,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to fetch live scanner calls', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -91,21 +136,12 @@ router.get('/calls/:systemId', async (req: Request, res: Response) => {
       });
     }
 
-    const result = await openMHzFetcher.fetch();
-
-    if (!result.success) {
-      return res.status(503).json({
-        error: 'Scanner call data unavailable',
-        message: result.error,
-      });
-    }
-
-    let calls = result.data || [];
+    let calls = aggregator.getScannerCalls();
 
     // Filter by talkgroup if specified
     if (talkgroup) {
       const tg = parseInt(talkgroup as string, 10);
-      calls = calls.filter((c) => c.metadata?.talkgroup === tg);
+      calls = calls.filter((c) => c.talkgroup === tg);
     }
 
     // Filter by since timestamp if specified
@@ -118,16 +154,66 @@ router.get('/calls/:systemId', async (req: Request, res: Response) => {
     const maxResults = Math.min(parseInt(limit as string, 10) || 50, 100);
     calls = calls.slice(0, maxResults);
 
+    const status = aggregator.getScannerStatus();
+
     res.json({
       systemId,
       calls,
       total: calls.length,
-      timestamp: result.timestamp,
+      timestamp: new Date().toISOString(),
+      status: {
+        lastCallTime: status.lastCallTime,
+        totalCalls: status.callCount,
+      },
     });
   } catch (error) {
     logger.error('Failed to fetch scanner calls for system', { error, systemId });
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+/**
+ * GET /api/scanner/status
+ * Returns the current status of scanner feeds
+ */
+router.get('/status', (_req: Request, res: Response) => {
+  const status = aggregator.getScannerStatus();
+
+  res.json({
+    status: {
+      dcfd: {
+        systemId: status.systemId,
+        isActive: status.callCount > 0,
+        lastCallTime: status.lastCallTime,
+        recentCallCount: status.callCount,
+      },
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /api/scanner/talkgroups
+ * Returns known talkgroups for DCFD
+ */
+router.get('/talkgroups', (_req: Request, res: Response) => {
+  // Common DCFD talkgroups
+  const talkgroups = [
+    { id: 1, alpha: 'Dispatch 1', description: 'Main Dispatch Channel', group: 'Dispatch' },
+    { id: 2, alpha: 'Dispatch 2', description: 'Secondary Dispatch', group: 'Dispatch' },
+    { id: 3, alpha: 'EMS 1', description: 'EMS Operations', group: 'EMS' },
+    { id: 4, alpha: 'EMS 2', description: 'EMS Secondary', group: 'EMS' },
+    { id: 5, alpha: 'Fireground 1', description: 'Fireground Operations', group: 'Fireground' },
+    { id: 6, alpha: 'Fireground 2', description: 'Fireground Tactical', group: 'Fireground' },
+    { id: 7, alpha: 'Command', description: 'Command Channel', group: 'Command' },
+    { id: 8, alpha: 'Hazmat', description: 'Hazmat Operations', group: 'Special' },
+  ];
+
+  res.json({
+    systemId: 'dcfd',
+    talkgroups,
+    notice: 'Talkgroup assignments may vary. These are common channels.',
+  });
 });
 
 /**
@@ -158,4 +244,3 @@ router.get('/resources', (_req: Request, res: Response) => {
 });
 
 export default router;
-

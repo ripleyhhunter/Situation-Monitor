@@ -1,8 +1,9 @@
 import { writable } from 'svelte/store';
-import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality } from '$types';
+import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, ScannerCall, ScannerStatus } from '$types';
 import { upsertIncident, clearIncident } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
 import { upsertWeatherAlert, removeWeatherAlert, setAirQuality } from '$stores/weather';
+import { addScannerCall, updateScannerStatus } from '$stores/scanner';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -104,6 +105,18 @@ class SSEService {
     this.eventSource.addEventListener('aqi:update', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<AirQuality>;
       setAirQuality(data.data);
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('scanner:call', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<ScannerCall>;
+      addScannerCall(data.data);
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('scanner:status', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<ScannerStatus>;
+      updateScannerStatus(data.data);
       lastEventTime.set(data.timestamp);
     });
   }

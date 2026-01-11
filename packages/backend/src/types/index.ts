@@ -16,7 +16,9 @@ export type DataSource =
   | 'alertdc'
   | 'nws'
   | 'wmata'
-  | 'airnow';
+  | 'airnow'
+  | 'openmhz'
+  | 'scanner';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 
@@ -106,6 +108,36 @@ export interface AirQuality {
   };
 }
 
+// Scanner Call types
+export type ScannerCallType = 'dispatch' | 'tactical' | 'ems' | 'fireground' | 'command' | 'hazmat' | 'other';
+
+export interface ScannerCall {
+  id: string;
+  systemId: string;
+  talkgroup: number;
+  talkgroupAlpha: string;
+  talkgroupDescription?: string;
+  talkgroupTag?: string;
+  talkgroupGroup?: string;
+  timestamp: string;
+  duration: number;
+  frequency?: number;
+  audioUrl: string;
+  type: IncidentType;
+  callType: ScannerCallType;
+  severity: 1 | 2 | 3 | 4 | 5;
+  sources?: Array<{ src: number; time: number }>;
+}
+
+export interface ScannerFeedStatus {
+  feedId: string;
+  name: string;
+  isLive: boolean;
+  lastCallTime?: string;
+  callCount: number;
+  listenersCount?: number;
+}
+
 // SSE Event types
 export type SSEEventType =
   | 'incident:new'
@@ -116,6 +148,8 @@ export type SSEEventType =
   | 'weather:clear'
   | 'transit:update'
   | 'aqi:update'
+  | 'scanner:call'
+  | 'scanner:status'
   | 'heartbeat'
   | 'connected';
 

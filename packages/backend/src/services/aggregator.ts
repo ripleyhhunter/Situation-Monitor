@@ -1,4 +1,4 @@
-import type { Incident, Camera, WeatherAlert, AirQuality } from '../types/index.js';
+import type { Incident, Camera, WeatherAlert, AirQuality, ScannerCall } from '../types/index.js';
 import { nwsWeatherFetcher } from '../fetchers/nws-weather.js';
 import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
 import { dcCamerasFetcher } from '../fetchers/dc-cameras.js';
@@ -10,6 +10,7 @@ import { dcTrafficFetcher } from '../fetchers/dc-traffic.js';
 import { alertDCFetcher } from '../fetchers/alertdc.js';
 import { wmataFetcher } from '../fetchers/wmata.js';
 import { airnowFetcher } from '../fetchers/airnow.js';
+import { dcfdRealtimeFetcher } from '../fetchers/openmhz-realtime.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
@@ -21,6 +22,7 @@ interface AggregatedData {
   cameras: Camera[];
   weather: WeatherAlert[];
   airQuality: AirQuality[];
+  scannerCalls: ScannerCall[];
 }
 
 class AggregatorService {
@@ -41,11 +43,35 @@ class AggregatorService {
     // Schedule all fetchers
     this.scheduleAllFetchers();
 
+    // Start real-time scanner listener
+    this.startScannerListener();
+
     // Do initial fetch
     await this.fetchAll();
 
     this.initialized = true;
     logger.info('Aggregator service initialized');
+  }
+
+  /**
+   * Start the real-time scanner listener
+   */
+  private startScannerListener(): void {
+    // Listen for new scanner calls and broadcast via SSE
+    dcfdRealtimeFetcher.on('call', (call: ScannerCall) => {
+      logger.debug('New scanner call received', { 
+        id: call.id, 
+        talkgroup: call.talkgroupAlpha,
+        duration: call.duration 
+      });
+      
+      // Broadcast the scanner call to connected clients
+      sse.broadcast('scanner:call', call);
+    });
+
+    // Start the real-time fetcher
+    dcfdRealtimeFetcher.start();
+    logger.info('Scanner real-time listener started');
   }
 
   private scheduleAllFetchers(): void {
@@ -281,7 +307,29 @@ class AggregatorService {
       cameras: Array.from(this.cameras.values()),
       weather: Array.from(this.weatherAlerts.values()),
       airQuality: this.airQuality,
+      scannerCalls: dcfdRealtimeFetcher.getRecentCalls(),
     };
+  }
+
+  /**
+   * Get recent scanner calls
+   */
+  getScannerCalls(): ScannerCall[] {
+    return dcfdRealtimeFetcher.getRecentCalls();
+  }
+
+  /**
+   * Get scanner calls since a specific time
+   */
+  getScannerCallsSince(since: Date): ScannerCall[] {
+    return dcfdRealtimeFetcher.getCallsSince(since);
+  }
+
+  /**
+   * Get scanner status
+   */
+  getScannerStatus() {
+    return dcfdRealtimeFetcher.getStatus();
   }
 
   /**
@@ -331,6 +379,7 @@ class AggregatorService {
    */
   shutdown(): void {
     scheduler.shutdown();
+    dcfdRealtimeFetcher.stop();
     logger.info('Aggregator service shut down');
   }
 }
