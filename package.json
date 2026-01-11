@@ -1,0 +1,29 @@
+{
+  "name": "situation-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time situation monitoring dashboard for Washington D.C.",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "prettier": "^3.7.4",
+    "turbo": "^2.3.0",
+    "typescript-eslint": "^8.52.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@10.0.0"
+}
