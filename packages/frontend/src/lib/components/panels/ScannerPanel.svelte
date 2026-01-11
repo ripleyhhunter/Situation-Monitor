@@ -79,8 +79,9 @@
   }
 
   function openFeed(feed: ScannerFeed) {
-    if (feed.webUrl) {
-      window.open(feed.webUrl, '_blank');
+    const link = feed.embedUrl || feed.webUrl;
+    if (link) {
+      window.open(link, '_blank');
     }
   }
 
@@ -287,29 +288,23 @@
     {/if}
   </div>
 
-  <!-- Footer with Broadcastify Embed -->
+  <!-- Footer without iframe (Broadcastify blocks embedding) -->
   <div class="border-t border-gray-700 bg-gray-800">
-    <div class="p-3">
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-xs text-gray-400">DC Fire/EMS Live Stream</span>
-        <a 
-          href="https://www.broadcastify.com/listen/feed/2455" 
+    <div class="p-3 space-y-2">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs text-gray-400">DC Fire/EMS Live Stream</p>
+          <p class="text-[11px] text-gray-500">Opens on Broadcastify (embedding is blocked)</p>
+        </div>
+        <a
+          href="https://www.broadcastify.com/listen/feed/2455"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-xs text-blue-400 hover:text-blue-300"
+          class="text-xs px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors"
         >
-          Open in Broadcastify
+          Open Live Feed
         </a>
       </div>
-      <iframe
-        src="https://www.broadcastify.com/webPlayer/2455"
-        width="100%"
-        height="50"
-        frameborder="0"
-        scrolling="no"
-        title="DC Fire EMS Live"
-        class="rounded bg-black"
-      ></iframe>
     </div>
 
     <!-- Quick Links -->

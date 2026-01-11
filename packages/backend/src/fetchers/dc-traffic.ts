@@ -125,11 +125,13 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
   private normalizeIncident(feature: DCTrafficFeature, layerName: string): Incident {
     const attrs = feature.attributes;
     const coords = this.getCoordinates(feature);
-    const now = new Date().toISOString();
 
     // Parse dates
     const startTime = attrs.starttime ? new Date(attrs.starttime).toISOString() : now;
     const endTime = attrs.endtime ? new Date(attrs.endtime).toISOString() : undefined;
+    const updatedTime = attrs.starttime
+      ? new Date(attrs.starttime).toISOString()
+      : now;
 
     // Build title
     const title = this.buildTitle(attrs, layerName);
@@ -144,7 +146,9 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
         address: attrs.street || undefined,
       },
       timestamp: startTime,
-      updatedAt: now,
+      // Use the source-provided start time as the "updated" time so the UI
+      // doesn't show "just now" on every refresh.
+      updatedAt: updatedTime,
       source: 'dc-traffic',
       title,
       description: this.buildDescription(attrs, endTime),

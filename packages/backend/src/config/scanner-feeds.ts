@@ -29,13 +29,12 @@ export const DC_SCANNER_FEEDS: ScannerFeed[] = [
   {
     id: 'dc-fire-ems',
     name: 'DC Fire & EMS',
-    description: 'DCFD Main Dispatch, Firegrounds, EMS Operations',
+    description: 'DCFD Main Dispatch, Firegrounds, EMS Operations (Broadcastify directory)',
     region: 'dc',
     type: 'fire',
     provider: 'broadcastify',
-    feedId: '2455',
-    embedUrl: 'https://www.broadcastify.com/webPlayer/2455',
-    webUrl: 'https://www.broadcastify.com/listen/feed/2455',
+    // Direct feed IDs change frequently; use the DC directory which always resolves.
+    webUrl: 'https://www.broadcastify.com/listen/ctid/315',
     isLive: true,
     encrypted: false,
     priority: 1,
