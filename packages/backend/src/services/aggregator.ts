@@ -6,6 +6,8 @@ import { landmarkWebcamsFetcher } from '../fetchers/landmark-webcams.js';
 import { mdchartIncidentsFetcher } from '../fetchers/mdchart-incidents.js';
 import { dcCrimeFetcher } from '../fetchers/dc-crime.js';
 import { dcShotSpotterFetcher } from '../fetchers/dc-shotspotter.js';
+import { dcTrafficFetcher } from '../fetchers/dc-traffic.js';
+import { alertDCFetcher } from '../fetchers/alertdc.js';
 import { wmataFetcher } from '../fetchers/wmata.js';
 import { airnowFetcher } from '../fetchers/airnow.js';
 import { scheduler } from './scheduler.js';
@@ -72,6 +74,11 @@ class AggregatorService {
       await this.fetchShotSpotter();
     });
 
+    // AlertDC - every 2 minutes (emergency alerts are time-sensitive)
+    scheduler.schedule('alertdc', '*/2 * * * *', async () => {
+      await this.fetchAlertDC();
+    });
+
     // WMATA - every minute (if API key configured)
     if (config.wmataApiKey) {
       scheduler.schedule('wmata', '* * * * *', async () => {
@@ -95,6 +102,7 @@ class AggregatorService {
       this.fetchTrafficIncidents(),
       this.fetchCrime(),
       this.fetchShotSpotter(),
+      this.fetchAlertDC(),
       this.fetchTransit(),
       this.fetchAirQuality(),
     ]);
@@ -166,10 +174,18 @@ class AggregatorService {
   }
 
   private async fetchTrafficIncidents(): Promise<void> {
-    const result = await mdchartIncidentsFetcher.fetch();
+    // Fetch from both Maryland CHART and DC HSEMA
+    const [mdResult, dcResult] = await Promise.all([
+      mdchartIncidentsFetcher.fetch(),
+      dcTrafficFetcher.fetch(),
+    ]);
 
-    if (result.success && result.data) {
-      await this.processIncidents(result.data);
+    if (mdResult.success && mdResult.data) {
+      await this.processIncidents(mdResult.data);
+    }
+
+    if (dcResult.success && dcResult.data) {
+      await this.processIncidents(dcResult.data);
     }
   }
 
@@ -183,6 +199,14 @@ class AggregatorService {
 
   private async fetchShotSpotter(): Promise<void> {
     const result = await dcShotSpotterFetcher.fetch();
+
+    if (result.success && result.data) {
+      await this.processIncidents(result.data);
+    }
+  }
+
+  private async fetchAlertDC(): Promise<void> {
+    const result = await alertDCFetcher.fetch();
 
     if (result.success && result.data) {
       await this.processIncidents(result.data);

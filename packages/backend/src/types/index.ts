@@ -12,6 +12,8 @@ export type DataSource =
   | 'mdchart'
   | 'dc-crime'
   | 'dc-shotspotter'
+  | 'dc-traffic'
+  | 'alertdc'
   | 'nws'
   | 'wmata'
   | 'airnow';

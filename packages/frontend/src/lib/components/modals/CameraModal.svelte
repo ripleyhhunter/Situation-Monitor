@@ -14,6 +14,28 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') close();
   }
+
+  // Check if URL is a YouTube video and extract video ID
+  function getYouTubeEmbedUrl(url: string | undefined): string | null {
+    if (!url) return null;
+
+    // Match youtube.com/watch?v=ID, youtube.com/live/ID, youtu.be/ID
+    const patterns = [
+      /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
+      /youtu\.be\/([a-zA-Z0-9_-]+)/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) {
+        return `https://www.youtube.com/embed/${match[1]}?autoplay=1&mute=1`;
+      }
+    }
+    return null;
+  }
+
+  $: youtubeEmbedUrl = getYouTubeEmbedUrl(camera.streamUrl);
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -50,7 +72,17 @@
 
     <!-- Camera Feed -->
     <div class="aspect-video bg-gray-900 relative">
-      {#if camera.imageUrl}
+      {#if youtubeEmbedUrl}
+        <!-- YouTube embed -->
+        <iframe
+          src={youtubeEmbedUrl}
+          title={camera.name}
+          class="w-full h-full"
+          frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen
+        ></iframe>
+      {:else if camera.imageUrl}
         <img
           src={camera.imageUrl}
           alt={camera.name}

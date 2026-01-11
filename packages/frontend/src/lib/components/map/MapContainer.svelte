@@ -4,7 +4,7 @@
   import { mapState, userLocation, setMapBounds, DC_CENTER, DEFAULT_ZOOM, centerOnDC } from '$stores/location';
   import { filteredIncidents } from '$stores/filters';
   import { cameraList, selectCamera } from '$stores/cameras';
-  import { selectIncident } from '$stores/incidents';
+  import { selectIncident, selectedIncident } from '$stores/incidents';
   import { filters } from '$stores/filters';
   import { activeWeatherAlerts } from '$stores/weather';
   import { getSeverityColor, getIncidentTypeColor } from '$utils/format';
@@ -145,6 +145,11 @@
     updateWeatherLayers($activeWeatherAlerts);
   } else if (weatherLayers && !$filters.showWeather) {
     weatherLayers.clearLayers();
+  }
+
+  // Center map when incident is selected
+  $: if (map && $selectedIncident) {
+    map.setView([$selectedIncident.location.lat, $selectedIncident.location.lng], 15);
   }
 
   function updateIncidentMarkers(incidents: Incident[]) {

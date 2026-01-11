@@ -8,7 +8,7 @@ const defaultFilters: FilterState = {
   minSeverity: 1,
   showCameras: true,
   showWeather: true,
-  timeRange: 'all',
+  timeRange: '24h',
 };
 
 // Filters store
