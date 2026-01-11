@@ -17,6 +17,7 @@ import incidentsRouter from './routes/incidents.js';
 import camerasRouter from './routes/cameras.js';
 import weatherRouter from './routes/weather.js';
 import aqiRouter from './routes/aqi.js';
+import scannerRouter from './routes/scanner.js';
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use('/api/incidents', apiRateLimiter, incidentsRouter);
 app.use('/api/cameras', apiRateLimiter, camerasRouter);
 app.use('/api/weather', apiRateLimiter, weatherRouter);
 app.use('/api/aqi', apiRateLimiter, aqiRouter);
+app.use('/api/scanner', apiRateLimiter, scannerRouter);
 
 // 404 handler
 app.use(notFoundHandler);
