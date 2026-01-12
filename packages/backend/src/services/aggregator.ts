@@ -11,6 +11,7 @@ import { alertDCFetcher } from '../fetchers/alertdc.js';
 import { wmataFetcher } from '../fetchers/wmata.js';
 import { airnowFetcher } from '../fetchers/airnow.js';
 import { openMHzFetcher } from '../fetchers/openmhz.js';
+import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
@@ -124,13 +125,20 @@ class AggregatorService {
     scheduler.schedule('scanner', cronScanner, async () => {
       await this.fetchScanner();
     }, false);
+
+    // DC Fire/EMS Twitter feed - every 2 minutes (if configured)
+    if (process.env.TWITTER_BEARER_TOKEN) {
+      scheduler.schedule('dcfireems-twitter', '*/2 * * * *', async () => {
+        await this.fetchDCFireEMSTwitter();
+      }, false);
+    }
   }
 
   /**
    * Fetch all data sources
    */
   async fetchAll(): Promise<void> {
-    await Promise.all([
+    const fetchers = [
       this.fetchWeather(),
       this.fetchCameras(),
       this.fetchTrafficIncidents(),
@@ -140,7 +148,14 @@ class AggregatorService {
       this.fetchTransit(),
       this.fetchAirQuality(),
       this.fetchScanner(),
-    ]);
+    ];
+
+    // Add Twitter fetcher if configured
+    if (process.env.TWITTER_BEARER_TOKEN) {
+      fetchers.push(this.fetchDCFireEMSTwitter());
+    }
+
+    await Promise.all(fetchers);
   }
 
   private async fetchWeather(): Promise<void> {
@@ -270,6 +285,14 @@ class AggregatorService {
 
   private async fetchScanner(): Promise<void> {
     const result = await openMHzFetcher.fetch();
+
+    if (result.success && result.data) {
+      await this.processIncidents(result.data);
+    }
+  }
+
+  private async fetchDCFireEMSTwitter(): Promise<void> {
+    const result = await dcFireEMSTwitterFetcher.fetch();
 
     if (result.success && result.data) {
       await this.processIncidents(result.data);

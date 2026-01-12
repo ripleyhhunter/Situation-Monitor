@@ -121,13 +121,22 @@ API keys:
 | WMATA | Metro service alerts (API key required) | 30 sec |
 | AirNow | Air quality index (API key required) | 30 min |
 
-### Fire/EMS Data Limitations
+### Fire/EMS Data
 
-⚠️ **Washington DC does not publish real-time Fire/EMS CAD (dispatch) data publicly.** This app can only show major emergency alerts (via AlertDC), not individual fire/medical calls.
+DC Fire/EMS incident data is available through the **@dcfireems Twitter/X feed**, which posts working fires and significant incidents. To enable:
 
-For real-time Fire/EMS incidents with locations, use:
-- **[PulsePoint App](https://www.pulsepoint.org/)** (recommended) - DC Fire/EMS participates. Shows live incidents on a map.
-- **[Broadcastify Calls](https://www.broadcastify.com/calls/)** - Listen to archived radio calls (requires free account)
+```env
+# Twitter/X API - Get from developer.twitter.com ($100/month Basic tier)
+TWITTER_BEARER_TOKEN=your_bearer_token
+```
+
+Without Twitter API access, the app shows:
+- Major emergency alerts via AlertDC (fires, hazmat, mass casualties)
+- Traffic incidents (which often include Fire/EMS responses)
+
+**Alternative Resources:**
+- **[PulsePoint App](https://www.pulsepoint.org/)** - DC Fire/EMS participates. Shows live incidents on a map.
+- **[Broadcastify Calls](https://www.broadcastify.com/calls/)** - Listen to archived radio calls (free account required)
 
 **Note:** DC Metro Police radios have been fully encrypted since 2011.
 

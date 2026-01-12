@@ -8,8 +8,10 @@ Situation Monitor is a real-time situation monitoring dashboard for Washington D
 
 **Key Limitations:**
 - DC Metro Police radios are fully encrypted since 2011
-- **DC does NOT publish real-time Fire/EMS CAD data publicly** - only major AlertDC alerts are available, not individual fire/medical dispatches
-- For live Fire/EMS incidents with locations, recommend users to PulsePoint app (DC participates)
+- **DC does NOT publish real-time Fire/EMS CAD data publicly** - AlertDC only has major alerts
+- **Solution:** @dcfireems Twitter feed posts working fires and major incidents
+  - Set `TWITTER_BEARER_TOKEN` to enable (requires paid X API access - $100/month)
+- For end users without Twitter API: recommend PulsePoint app (DC participates)
 
 ## Build & Development Commands
 
