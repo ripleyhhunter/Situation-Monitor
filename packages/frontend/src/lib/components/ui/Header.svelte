@@ -86,6 +86,18 @@
 
     <!-- Right section -->
     <div class="flex items-center gap-2">
+      <!-- Mobile connection indicator -->
+      <div class="md:hidden flex items-center">
+        <div
+          class="w-2 h-2 rounded-full"
+          class:bg-green-500={$connectionStatus === 'connected'}
+          class:bg-yellow-500={$connectionStatus === 'connecting'}
+          class:bg-red-500={$connectionStatus === 'error' || $connectionStatus === 'disconnected'}
+          class:animate-pulse={$connectionStatus === 'connecting'}
+          title={$connectionStatus === 'connected' ? 'Connected' : $connectionStatus}
+        ></div>
+      </div>
+
       <!-- Scanner toggle -->
       <button
         on:click={() => (showScanner = !showScanner)}
