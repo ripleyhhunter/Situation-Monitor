@@ -345,12 +345,41 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       address = `${intersectionMatch[1]} and ${intersectionMatch[2]}`;
     }
 
-    // Default to DC center - in a production system you'd geocode the address
+    // Use deterministic offset based on description hash so alerts don't jump around
+    // In production, you'd geocode the address via a service like Google Maps or Nominatim
+    // For now, we spread alerts within DC bounds based on a hash of the description
+    const offset = this.deterministicOffset(description);
+
     return {
-      lat: config.defaultLat + (Math.random() - 0.5) * 0.05, // Slight randomization within DC
-      lng: config.defaultLng + (Math.random() - 0.5) * 0.05,
+      lat: config.defaultLat + offset.latOffset,
+      lng: config.defaultLng + offset.lngOffset,
       address,
     };
+  }
+
+  /**
+   * Generate a deterministic offset for locations without coordinates.
+   * Uses a simple hash to ensure the same description always maps to the same location.
+   * This prevents markers from jumping around on each data refresh.
+   *
+   * TODO: Integrate a geocoding service (Nominatim, Google Maps, etc.) for accurate locations.
+   */
+  private deterministicOffset(text: string): { latOffset: number; lngOffset: number } {
+    // Create a simple hash from the text
+    let hash1 = 0;
+    let hash2 = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash1 = ((hash1 << 5) - hash1 + char) & 0xffffffff;
+      hash2 = ((hash2 << 7) - hash2 + char) & 0xffffffff;
+    }
+
+    // Convert to offset in range [-0.025, 0.025] (roughly DC bounds)
+    // This spreads alerts across approximately 3 miles in each direction
+    const latOffset = ((hash1 % 10000) / 10000 - 0.5) * 0.05;
+    const lngOffset = ((hash2 % 10000) / 10000 - 0.5) * 0.05;
+
+    return { latOffset, lngOffset };
   }
 }
 
