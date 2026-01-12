@@ -237,8 +237,8 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
       updatedAt: now,
       source: 'dc-traffic',
       title,
-      description: this.buildDescription(attrs, endTime),
-      status: this.mapStatus(attrs.status, endTime),
+      description: this.buildDescription(attrs, endTime ?? undefined),
+      status: this.mapStatus(attrs.status, endTime ?? undefined),
       category: attrs.closuretype || attrs.subtype || 'road closure',
       metadata: {
         objectId: attrs.OBJECTID,

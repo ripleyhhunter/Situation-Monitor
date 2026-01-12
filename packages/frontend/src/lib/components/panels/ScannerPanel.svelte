@@ -17,11 +17,11 @@
   const scannerFeeds: ScannerFeed[] = [
     {
       id: 'pulsepoint',
-      name: '📍 PulsePoint (Recommended)',
-      description: 'Live Fire/EMS incidents with map locations',
+      name: '🔥 PulsePoint App',
+      description: 'Also view on the official PulsePoint app/website',
       url: 'https://web.pulsepoint.org/',
       type: 'pulsepoint',
-      recommended: true,
+      recommended: false,
     },
     {
       id: 'dc-fire-ems-calls',
@@ -129,9 +129,9 @@
   </div>
 
   <!-- Info about available feeds -->
-  <div class="p-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
-    <p class="text-xs text-amber-800 dark:text-amber-200">
-      <strong>📱 For live Fire/EMS incidents with locations, use PulsePoint app!</strong> DC Police radios are encrypted.
+  <div class="p-2 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800">
+    <p class="text-xs text-green-800 dark:text-green-200">
+      <strong>🔥 Fire/EMS incidents are now shown on the map!</strong> Data from DC Fire & EMS via PulsePoint. DC Police radios are encrypted.
     </p>
   </div>
 

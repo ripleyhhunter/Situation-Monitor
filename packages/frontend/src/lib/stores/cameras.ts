@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import type { Camera } from '$types';
+import { filters } from './filters';
 
 // Store for all cameras
 export const cameras = writable<Map<string, Camera>>(new Map());
@@ -28,6 +29,22 @@ export function clearAllCameras(): void {
 // Derived store for camera array
 export const cameraList = derived(cameras, ($cameras) =>
   Array.from($cameras.values())
+);
+
+// Derived store for filtered cameras (respects showLocationOnlyCameras filter)
+export const filteredCameraList = derived(
+  [cameras, filters],
+  ([$cameras, $filters]) => {
+    const allCameras = Array.from($cameras.values());
+    
+    if ($filters.showLocationOnlyCameras) {
+      // Show all cameras
+      return allCameras;
+    }
+    
+    // Hide cameras that have no image URL (location-only markers)
+    return allCameras.filter(camera => camera.imageUrl);
+  }
 );
 
 // Selected camera for modal view

@@ -7,6 +7,7 @@ const defaultFilters: FilterState = {
   incidentTypes: new Set(['traffic', 'crime', 'fire', 'weather', 'transit', 'gunshot', 'hazard']),
   minSeverity: 1,
   showCameras: true,
+  showLocationOnlyCameras: false, // Hide DC cameras (no image/stream) by default
   showWeather: true,
   timeRange: '24h',
 };
@@ -35,6 +36,11 @@ export function setMinSeverity(severity: number): void {
 // Toggle cameras visibility
 export function toggleCameras(): void {
   filters.update((f) => ({ ...f, showCameras: !f.showCameras }));
+}
+
+// Toggle location-only cameras visibility
+export function toggleLocationOnlyCameras(): void {
+  filters.update((f) => ({ ...f, showLocationOnlyCameras: !f.showLocationOnlyCameras }));
 }
 
 // Toggle weather visibility

@@ -7,6 +7,7 @@ interface AlertItem {
   title: string;
   description: string;
   pubDate: string;
+  link?: string;
 }
 
 export class AlertDCFetcher extends BaseFetcher<Incident> {

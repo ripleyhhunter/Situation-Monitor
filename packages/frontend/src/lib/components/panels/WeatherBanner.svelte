@@ -69,6 +69,7 @@
           {#if alerts.length > 1}
             <button
               on:click={prevAlert}
+              aria-label="Previous alert"
               class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               <svg class="w-4 h-4 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -80,6 +81,7 @@
             </span>
             <button
               on:click={nextAlert}
+              aria-label="Next alert"
               class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               <svg class="w-4 h-4 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,6 +91,7 @@
           {/if}
           <button
             on:click={() => (expanded = !expanded)}
+            aria-label={expanded ? 'Collapse alert details' : 'Expand alert details'}
             class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
           >
             <svg

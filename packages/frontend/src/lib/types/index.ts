@@ -115,6 +115,7 @@ export interface FilterState {
   incidentTypes: Set<IncidentType>;
   minSeverity: number;
   showCameras: boolean;
+  showLocationOnlyCameras: boolean;
   showWeather: boolean;
   timeRange: 'all' | '1h' | '6h' | '24h';
 }

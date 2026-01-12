@@ -25,7 +25,16 @@
       "Bash(python:*)",
       "Bash(node:*)",
       "Bash(taskkill:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "WebFetch(domain:maps2.dcgis.dc.gov)",
+      "WebFetch(domain:hsema.dc.gov)",
+      "WebFetch(domain:www.capitalert.gov)",
+      "WebFetch(domain:alertdc.io)",
+      "WebFetch(domain:www.fema.gov)",
+      "WebFetch(domain:trainingtrack.hsema.dc.gov)",
+      "Bash(git push:*)"
     ]
   }
 }

@@ -3,7 +3,7 @@
   import { browser } from '$app/environment';
   import { mapState, userLocation, setMapBounds, DC_CENTER, DEFAULT_ZOOM, centerOnDC } from '$stores/location';
   import { filteredIncidents } from '$stores/filters';
-  import { cameraList, selectCamera } from '$stores/cameras';
+  import { filteredCameraList, selectCamera } from '$stores/cameras';
   import { selectIncident, selectedIncident } from '$stores/incidents';
   import { filters } from '$stores/filters';
   import { activeWeatherAlerts } from '$stores/weather';
@@ -129,8 +129,8 @@
   }
 
   // Update camera markers when cameras change
-  $: if (cameraMarkers && L && $cameraList && $filters.showCameras) {
-    updateCameraMarkers($cameraList);
+  $: if (cameraMarkers && L && $filteredCameraList && $filters.showCameras) {
+    updateCameraMarkers($filteredCameraList);
   } else if (cameraMarkers && !$filters.showCameras) {
     cameraMarkers.clearLayers();
   }

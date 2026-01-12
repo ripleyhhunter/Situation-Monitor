@@ -12,6 +12,7 @@ import { wmataFetcher } from '../fetchers/wmata.js';
 import { airnowFetcher } from '../fetchers/airnow.js';
 import { openMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
+import { pulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
@@ -132,6 +133,11 @@ class AggregatorService {
         await this.fetchDCFireEMSTwitter();
       }, false);
     }
+
+    // PulsePoint Fire/EMS incidents - every 2 minutes
+    scheduler.schedule('pulsepoint', '*/2 * * * *', async () => {
+      await this.fetchPulsePoint();
+    }, false);
   }
 
   /**
@@ -148,6 +154,7 @@ class AggregatorService {
       this.fetchTransit(),
       this.fetchAirQuality(),
       this.fetchScanner(),
+      this.fetchPulsePoint(),
     ];
 
     // Add Twitter fetcher if configured
@@ -299,6 +306,14 @@ class AggregatorService {
     }
   }
 
+  private async fetchPulsePoint(): Promise<void> {
+    const result = await pulsePointFetcher.fetch();
+
+    if (result.success && result.data) {
+      await this.processIncidents(result.data);
+    }
+  }
+
   private async processIncidents(newIncidents: Incident[]): Promise<void> {
     const processedIds = new Set<string>();
 
@@ -395,8 +410,9 @@ class AggregatorService {
   /**
    * Shutdown the aggregator
    */
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     scheduler.shutdown();
+    await pulsePointFetcher.shutdown();
     logger.info('Aggregator service shut down');
   }
 }

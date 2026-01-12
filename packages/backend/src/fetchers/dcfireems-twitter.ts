@@ -134,7 +134,7 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
         return [];
       }
 
-      const data: TwitterResponse = await response.json();
+      const data = (await response.json()) as TwitterResponse;
       
       if (!data.data || data.data.length === 0) {
         return [];
