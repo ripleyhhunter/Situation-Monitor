@@ -117,6 +117,7 @@ API keys:
 | DC Open Data | Crime incidents, ShotSpotter gunshots | 5-15 min |
 | DC HSEMA | Traffic incidents | 1 min |
 | AlertDC | Major emergency alerts | 2 min |
+| @dcfireems Twitter | Fire/EMS incidents (API key required) | 2 min |
 | NWS | Weather alerts, watches, warnings | 2 min |
 | WMATA | Metro service alerts (API key required) | 30 sec |
 | AirNow | Air quality index (API key required) | 30 min |
