@@ -17,7 +17,9 @@ export type DataSource =
   | 'nws'
   | 'wmata'
   | 'airnow'
-  | 'openmhz';
+  | 'openmhz'
+  | 'pulsepoint'
+  | 'scanner';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 
@@ -91,6 +93,42 @@ export interface AirQuality {
   description?: string;
 }
 
+// Aircraft types
+export type AircraftCategory = 'commercial' | 'helicopter' | 'military' | 'general' | 'unknown';
+
+export interface AircraftMetadata {
+  registration?: string;      // e.g., "N12345"
+  manufacturer?: string;      // e.g., "BOEING", "AIRBUS", "ROBINSON"
+  model?: string;             // e.g., "737-800", "EC145", "R44"
+  typecode?: string;          // ICAO type code, e.g., "B738", "EC45", "R44"
+  operator?: string;          // e.g., "United Airlines", "US Park Police"
+  owner?: string;             // Owner name
+  built?: string;             // Year built
+  categoryDescription?: string; // e.g., "Land Plane", "Rotorcraft"
+}
+
+export interface Aircraft {
+  id: string;
+  icao24: string;
+  callsign: string;
+  location: {
+    lat: number;
+    lng: number;
+    altitude: number;       // feet
+    altitudeMeters: number;
+  };
+  heading: number;          // degrees clockwise from north
+  speed: number;            // knots
+  verticalRate: number;     // ft/min (positive = climbing)
+  onGround: boolean;
+  squawk: string | null;
+  origin: string;           // country of registration
+  category: AircraftCategory;
+  isEmergency: boolean;     // squawk 7500/7600/7700
+  timestamp: string;
+  metadata?: AircraftMetadata;
+}
+
 // Current Weather types
 export interface CurrentWeather {
   temperature: number;
@@ -114,6 +152,7 @@ export type SSEEventType =
   | 'weather:current'
   | 'transit:update'
   | 'aqi:update'
+  | 'aircraft:update'
   | 'heartbeat'
   | 'connected';
 
@@ -131,6 +170,8 @@ export interface FilterState {
   showLocationOnlyCameras: boolean;
   showWeather: boolean;
   showCrimeHeatmap: boolean;
+  showAircraft: boolean;
+  hideGroundAircraft: boolean;
   timeRange: 'all' | '1h' | '6h' | '24h';
 }
 

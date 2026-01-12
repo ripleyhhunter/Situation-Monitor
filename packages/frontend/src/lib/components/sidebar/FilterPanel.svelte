@@ -7,10 +7,13 @@
     toggleLocationOnlyCameras,
     toggleWeather,
     toggleCrimeHeatmap,
+    toggleAircraft,
+    toggleGroundAircraft,
     setTimeRange,
     resetFilters,
   } from '$stores/filters';
   import { incidentCounts } from '$stores/incidents';
+  import { aircraftCounts } from '$stores/aircraft';
   import { getIncidentTypeName, getIncidentTypeColor, getSeverityColor, getSeverityLabel } from '$utils/format';
   import type { IncidentType, FilterState } from '$types';
 
@@ -33,7 +36,7 @@
           <input
             type="checkbox"
             checked={$filters.incidentTypes.has(type)}
-            on:change={() => toggleIncidentType(type)}
+            onchange={() => toggleIncidentType(type)}
             class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
           />
           <span
@@ -61,7 +64,7 @@
       min="1"
       max="5"
       value={$filters.minSeverity}
-      on:input={(e) => setMinSeverity(parseInt(e.currentTarget.value))}
+      oninput={(e) => setMinSeverity(parseInt(e.currentTarget.value))}
       class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
     />
     <div class="flex justify-between mt-1">
@@ -82,8 +85,9 @@
     <div class="grid grid-cols-2 gap-2">
       {#each timeRanges as range}
         <button
-          on:click={() => setTimeRange(range.value)}
-          class="px-3 py-2 text-sm rounded-lg transition-colors"
+          type="button"
+          onclick={() => setTimeRange(range.value)}
+          class="px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer"
           class:bg-indigo-100={$filters.timeRange === range.value}
           class:dark:bg-indigo-900={$filters.timeRange === range.value}
           class:text-indigo-700={$filters.timeRange === range.value}
@@ -109,7 +113,7 @@
         <input
           type="checkbox"
           checked={$filters.showCameras}
-          on:change={toggleCameras}
+          onchange={toggleCameras}
           class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
         />
         <svg class="w-5 h-5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24">
@@ -122,7 +126,7 @@
           <input
             type="checkbox"
             checked={$filters.showLocationOnlyCameras}
-            on:change={toggleLocationOnlyCameras}
+            onchange={toggleLocationOnlyCameras}
             class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
           />
           <svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
@@ -135,7 +139,7 @@
         <input
           type="checkbox"
           checked={$filters.showWeather}
-          on:change={toggleWeather}
+          onchange={toggleWeather}
           class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
         />
         <svg class="w-5 h-5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24">
@@ -147,7 +151,7 @@
         <input
           type="checkbox"
           checked={$filters.showCrimeHeatmap}
-          on:change={toggleCrimeHeatmap}
+          onchange={toggleCrimeHeatmap}
           class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
         />
         <svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24">
@@ -155,13 +159,42 @@
         </svg>
         <span class="text-sm text-gray-700 dark:text-gray-300">Crime Heatmap</span>
       </label>
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={$filters.showAircraft}
+          onchange={toggleAircraft}
+          class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+        />
+        <svg class="w-5 h-5 text-sky-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+        </svg>
+        <span class="text-sm text-gray-700 dark:text-gray-300">
+          Aircraft
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            ({$aircraftCounts.inFlight} ✈️ {$aircraftCounts.helicopter > 0 ? `+ ${$aircraftCounts.helicopter} 🚁` : ''})
+          </span>
+        </span>
+      </label>
+      {#if $filters.showAircraft}
+        <label class="flex items-center gap-3 cursor-pointer ml-6">
+          <input
+            type="checkbox"
+            checked={$filters.hideGroundAircraft}
+            onchange={toggleGroundAircraft}
+            class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+          />
+          <span class="text-xs text-gray-500 dark:text-gray-400">Hide aircraft on ground</span>
+        </label>
+      {/if}
     </div>
   </div>
 
   <!-- Reset Button -->
   <button
-    on:click={resetFilters}
-    class="w-full px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+    type="button"
+    onclick={resetFilters}
+    class="w-full px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors cursor-pointer"
   >
     Reset Filters
   </button>

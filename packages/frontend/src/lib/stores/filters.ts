@@ -10,6 +10,8 @@ const defaultFilters: FilterState = {
   showLocationOnlyCameras: false, // Hide DC cameras (no image/stream) by default
   showWeather: true,
   showCrimeHeatmap: false, // Toggle between markers and heatmap for crime data
+  showAircraft: true, // Show aircraft on the map
+  hideGroundAircraft: true, // Hide aircraft on the ground by default
   timeRange: '24h',
 };
 
@@ -52,6 +54,16 @@ export function toggleWeather(): void {
 // Toggle crime heatmap
 export function toggleCrimeHeatmap(): void {
   filters.update((f) => ({ ...f, showCrimeHeatmap: !f.showCrimeHeatmap }));
+}
+
+// Toggle aircraft visibility
+export function toggleAircraft(): void {
+  filters.update((f) => ({ ...f, showAircraft: !f.showAircraft }));
+}
+
+// Toggle ground aircraft visibility
+export function toggleGroundAircraft(): void {
+  filters.update((f) => ({ ...f, hideGroundAircraft: !f.hideGroundAircraft }));
 }
 
 // Set time range
@@ -103,4 +115,23 @@ export const filteredIncidents = derived(
       return true;
     });
   }
+);
+
+// Derived store for incidents in the last 24 hours (for header display)
+// This is always 24h regardless of the current filter setting
+export const incidents24h = derived(
+  activeIncidents,
+  ($incidents) => {
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+    return $incidents.filter((incident: Incident) => {
+      const incidentTime = new Date(incident.timestamp).getTime();
+      return incidentTime >= twentyFourHoursAgo;
+    });
+  }
+);
+
+// Count of incidents in last 24 hours
+export const incidents24hCount = derived(
+  incidents24h,
+  ($incidents) => $incidents.length
 );

@@ -14,7 +14,8 @@
   <!-- Tabs -->
   <div class="flex border-b border-gray-200 dark:border-gray-700">
     <button
-      on:click={() => (activeTab = 'incidents')}
+      type="button"
+      onclick={() => (activeTab = 'incidents')}
       class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
       class:text-indigo-600={activeTab === 'incidents'}
       class:dark:text-indigo-400={activeTab === 'incidents'}
@@ -31,7 +32,8 @@
       </span>
     </button>
     <button
-      on:click={() => (activeTab = 'filters')}
+      type="button"
+      onclick={() => (activeTab = 'filters')}
       class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
       class:text-indigo-600={activeTab === 'filters'}
       class:dark:text-indigo-400={activeTab === 'filters'}

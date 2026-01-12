@@ -4,6 +4,7 @@
   import { darkMode, toggleDarkMode, sidebarOpen, toggleSidebar } from '$stores/location';
   import { airQuality, aqiColor, aqiDescription, currentWeather } from '$stores/weather';
   import { incidentCounts, metroDelays } from '$stores/incidents';
+  import { incidents24hCount } from '$stores/filters';
   import { formatRelativeTime } from '$utils/time';
   import SearchBar from './SearchBar.svelte';
 
@@ -12,8 +13,6 @@
   const dispatch = createEventDispatcher<{
     search: { lat: number; lng: number; name: string };
   }>();
-
-  $: totalIncidents = Object.values($incidentCounts).reduce((a, b) => a + b, 0);
 
   // Get short line code for display
   function getLineCode(line: string): string {
@@ -88,11 +87,11 @@
         </div>
       {/if}
 
-      <!-- Active Incidents -->
-      <div class="flex items-center gap-2 flex-shrink-0">
+      <!-- Active Incidents (24h) -->
+      <div class="flex items-center gap-2 flex-shrink-0" title="Active incidents in the past 24 hours">
         <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
         <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {totalIncidents} Active
+          {$incidents24hCount} Active in Past 24h
         </span>
       </div>
 

@@ -12,6 +12,7 @@ import { BaseFetcher } from './base.js';
 import type { Incident, IncidentType } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
+import { geocache } from '../services/geocache.js';
 
 interface ParsedIncident {
   type: string;
@@ -345,8 +346,16 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
       }
     }
     
-    // Convert to our Incident format
-    return allIncidents.map((inc, idx) => this.normalizeIncident(inc, idx));
+    // Convert to our Incident format with geocoding
+    // Process sequentially to respect rate limits
+    const incidents: Incident[] = [];
+    for (let idx = 0; idx < allIncidents.length; idx++) {
+      const inc = allIncidents[idx];
+      const incident = await this.normalizeIncident(inc, idx);
+      incidents.push(incident);
+    }
+    
+    return incidents;
   }
 
   private parseIncidentText(text: string): ParsedIncident[] {
@@ -424,16 +433,19 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     return incidents;
   }
 
-  private normalizeIncident(raw: ParsedIncident, index: number): Incident {
+  private async normalizeIncident(raw: ParsedIncident, _index: number): Promise<Incident> {
     const now = new Date().toISOString();
     const typeInfo = this.getTypeInfo(raw.type);
     
-    // Generate approximate coordinates from address
-    // For a real implementation, you'd want to geocode the address
-    const coords = this.estimateCoordinates(raw.address);
+    // Generate stable ID based on address and type (so same incident doesn't get new ID each fetch)
+    const stableId = this.generateStableId(raw.address, raw.type);
+    
+    // Use centralized geocache service (persisted to Redis)
+    const geocoded = await geocache.geocode(raw.address);
+    const coords = geocoded || this.estimateFromQuadrant(raw.address);
     
     return {
-      id: `pulsepoint-${Date.now()}-${index}`,
+      id: `pulsepoint-${stableId}`,
       type: typeInfo.type,
       severity: typeInfo.severity,
       location: {
@@ -443,7 +455,7 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
       },
       timestamp: this.parseTime(raw.time),
       updatedAt: now,
-      source: 'alertdc', // Group with emergency alerts for filtering
+      source: 'pulsepoint', // Use dedicated source to prevent cross-clearing with alertdc
       title: `DCFD: ${raw.type}`,
       description: this.buildDescription(raw),
       status: raw.status === 'closed' ? 'cleared' : 'active',
@@ -452,9 +464,24 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
         pulsePointType: raw.type,
         units: raw.units,
         duration: raw.duration,
-        source: 'pulsepoint',
+        geocoded: geocoded ? !geocoded.cached : false,
       },
     };
+  }
+  
+  /**
+   * Generate a stable ID based on address and type
+   * This prevents the same incident from getting a new ID each time we fetch
+   */
+  private generateStableId(address: string, type: string): string {
+    const key = `${address}-${type}`.toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      const char = key.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(36);
   }
 
   private getTypeInfo(callType: string): { type: IncidentType; severity: 1 | 2 | 3 | 4 | 5 } {
@@ -470,31 +497,68 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     return { type: 'fire', severity: 3 };
   }
 
-  private estimateCoordinates(address: string): { lat: number; lng: number } {
-    // Default to DC center
-    let lat = 38.9072;
-    let lng = -77.0369;
+  /**
+   * Fallback: estimate coordinates based on quadrant
+   * More granular than before - uses street numbers when available
+   */
+  private estimateFromQuadrant(address: string): { lat: number; lng: number } {
+    // DC center (Capitol building)
+    let lat = 38.8899;
+    let lng = -77.0091;
     
-    // Apply small offsets based on quadrant
+    // Extract street number if present
+    const streetNumMatch = address.match(/^(\d+)\s/);
+    const streetNum = streetNumMatch ? parseInt(streetNumMatch[1], 10) : 0;
+    
+    // Determine quadrant offset
+    let quadLat = 0;
+    let quadLng = 0;
+    
     if (address.includes(' NW')) {
-      lat += 0.02;
-      lng -= 0.02;
+      quadLat = 0.025;
+      quadLng = -0.025;
     } else if (address.includes(' NE')) {
-      lat += 0.02;
-      lng += 0.02;
+      quadLat = 0.025;
+      quadLng = 0.015;
     } else if (address.includes(' SW')) {
-      lat -= 0.02;
-      lng -= 0.02;
+      quadLat = -0.015;
+      quadLng = -0.025;
     } else if (address.includes(' SE')) {
-      lat -= 0.02;
-      lng += 0.02;
+      quadLat = -0.015;
+      quadLng = 0.015;
     }
     
-    // Add small random offset for visual separation
-    lat += (Math.random() - 0.5) * 0.01;
-    lng += (Math.random() - 0.5) * 0.01;
+    // Use street number to estimate distance from center
+    // Higher numbers = further from center (roughly)
+    if (streetNum > 0) {
+      const distFactor = Math.min(streetNum / 5000, 0.03);
+      quadLat *= (1 + distFactor);
+      quadLng *= (1 + distFactor);
+    }
+    
+    lat += quadLat;
+    lng += quadLng;
+    
+    // Add small deterministic offset based on address hash (not random!)
+    // This ensures same address always gets same location
+    const hash = this.simpleHash(address);
+    lat += ((hash % 100) - 50) * 0.0001;
+    lng += (((hash >> 8) % 100) - 50) * 0.0001;
     
     return { lat, lng };
+  }
+  
+  /**
+   * Simple string hash for deterministic offsets
+   */
+  private simpleHash(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
   }
 
   private parseTime(timeStr: string): string {

@@ -40,8 +40,17 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
   }
 
   protected async fetchFromApi(): Promise<Incident[]> {
-    // Query DC Open Data API for crime incidents in the last 30 days
-    // Layer 39 = "Crime Incidents - Last 30 Days"
+    // Fetch crime data from DC Open Data Socrata API
+    // This endpoint has the full year of crime data
+    // API docs: https://opendata.dc.gov/datasets/crime-incidents-in-2024
+    
+    // Calculate date 1 year ago
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const dateStr = oneYearAgo.toISOString().split('T')[0];
+    
+    // Try the ArcGIS REST API with the current year's crime layer
+    // Layer numbers change yearly - try the general query endpoint
     const baseUrl =
       'https://maps2.dcgis.dc.gov/dcgis/rest/services/FEEDS/MPD/MapServer/39/query';
 
@@ -50,7 +59,7 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
       where: '1=1',
       outFields: '*',
       orderByFields: 'REPORT_DAT DESC',
-      resultRecordCount: '500', // Limit to 500 most recent
+      resultRecordCount: '2000', // Get more records (Layer 39 has last 30 days max)
     });
 
     const url = `${baseUrl}?${params.toString()}`;

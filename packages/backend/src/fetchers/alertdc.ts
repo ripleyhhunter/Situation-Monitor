@@ -2,6 +2,7 @@ import { BaseFetcher } from './base.js';
 import type { Incident, IncidentType } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
+import { geocache } from '../services/geocache.js';
 
 interface AlertItem {
   title: string;
@@ -41,16 +42,21 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       // Parse HTML table format
       const items = this.parseHTML(html);
 
-      return items
-        .map((item) => this.normalizeAlert(item))
-        .filter((incident): incident is Incident => incident !== null);
+      const incidents: Incident[] = [];
+      for (const item of items) {
+        const incident = await this.normalizeAlert(item);
+        if (incident) {
+          incidents.push(incident);
+        }
+      }
+      return incidents;
     } catch (error) {
       logger.error('Failed to fetch AlertDC feed', { error });
       throw error;
     }
   }
 
-  private parseRSS(xml: string): Incident[] {
+  private async parseRSS(xml: string): Promise<Incident[]> {
     const items: AlertItem[] = [];
     const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
     let match;
@@ -70,9 +76,14 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       }
     }
 
-    return items
-      .map((item) => this.normalizeAlert(item))
-      .filter((incident): incident is Incident => incident !== null);
+    const incidents: Incident[] = [];
+    for (const item of items) {
+      const incident = await this.normalizeAlert(item);
+      if (incident) {
+        incidents.push(incident);
+      }
+    }
+    return incidents;
   }
 
   private parseHTML(html: string): AlertItem[] {
@@ -136,7 +147,7 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     return this.stripHtml(text);
   }
 
-  private normalizeAlert(item: AlertItem): Incident | null {
+  private async normalizeAlert(item: AlertItem): Promise<Incident | null> {
     const titleLower = item.title.toLowerCase();
     const descLower = item.description.toLowerCase();
 
@@ -160,8 +171,8 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     // Generate unique ID from title and date
     const id = this.generateId(item.title, timestamp);
 
-    // Extract location from description if possible
-    const location = this.extractLocation(item.description);
+    // Extract and geocode location from description
+    const location = await this.extractAndGeocodeLocation(item.description);
 
     return {
       id: `alertdc-${id}`,
@@ -182,6 +193,7 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       metadata: {
         link: item.link,
         rawPubDate: item.pubDate,
+        geocoded: location.geocoded,
       },
     };
   }
@@ -328,45 +340,92 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     return Math.abs(hash).toString(36);
   }
 
-  private extractLocation(description: string): {
+  /**
+   * Extract address from description and geocode it using centralized geocache
+   */
+  private async extractAndGeocodeLocation(description: string): Promise<{
     lat: number;
     lng: number;
     address?: string;
-  } {
-    // Try to extract block/street address from description
-    // Common patterns: "1200 block of K Street", "14th and U Streets"
-    const blockMatch = description.match(/(\d+)\s*block\s+(?:of\s+)?([^,.\n]+)/i);
-    const intersectionMatch = description.match(/(\w+)\s+(?:and|&)\s+(\w+)\s+(?:Street|St|Avenue|Ave|Road|Rd)/i);
-
-    let address: string | undefined;
-
-    if (blockMatch) {
-      address = `${blockMatch[1]} block of ${blockMatch[2].trim()}`;
-    } else if (intersectionMatch) {
-      address = `${intersectionMatch[1]} and ${intersectionMatch[2]}`;
+    geocoded: boolean;
+  }> {
+    // Try to extract address from description
+    const address = this.extractAddress(description);
+    
+    if (address) {
+      // Use centralized geocache service (persisted to Redis)
+      const result = await geocache.geocode(address);
+      if (result) {
+        return {
+          lat: result.lat,
+          lng: result.lng,
+          address,
+          geocoded: !result.cached,
+        };
+      }
     }
-
-    // Use deterministic offset based on description hash so alerts don't jump around
-    // In production, you'd geocode the address via a service like Google Maps or Nominatim
-    // For now, we spread alerts within DC bounds based on a hash of the description
+    
+    // Fall back to deterministic offset
     const offset = this.deterministicOffset(description);
-
     return {
       lat: config.defaultLat + offset.latOffset,
       lng: config.defaultLng + offset.lngOffset,
-      address,
+      address: address || undefined,
+      geocoded: false,
     };
   }
 
   /**
-   * Generate a deterministic offset for locations without coordinates.
+   * Extract address patterns from alert description
+   */
+  private extractAddress(description: string): string | null {
+    // Try various address patterns
+    
+    // Pattern: "1200 block of K Street NW"
+    const blockMatch = description.match(/(\d+)\s*block\s+(?:of\s+)?([^,.\n]+(?:NW|NE|SW|SE)?)/i);
+    if (blockMatch) {
+      let addr = `${blockMatch[1]} ${blockMatch[2].trim()}`;
+      if (!addr.toLowerCase().includes('washington')) {
+        addr += ', Washington, DC';
+      }
+      return addr;
+    }
+    
+    // Pattern: "14th and U Streets NW" or "14th & U Street"
+    const intersectionMatch = description.match(/(\d+(?:st|nd|rd|th)?|\w+)\s+(?:and|&)\s+(\w+)\s*(?:Street|St|Avenue|Ave|Road|Rd|Place|Pl|Drive|Dr)s?\s*(NW|NE|SW|SE)?/i);
+    if (intersectionMatch) {
+      let addr = `${intersectionMatch[1]} and ${intersectionMatch[2]} Street`;
+      if (intersectionMatch[3]) {
+        addr += ` ${intersectionMatch[3]}`;
+      }
+      addr += ', Washington, DC';
+      return addr;
+    }
+    
+    // Pattern: "at 1234 Main Street NW"
+    const atMatch = description.match(/(?:at|near|on)\s+(\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+)?\s*(?:Street|St|Avenue|Ave|Road|Rd|Place|Pl|Drive|Dr|Way|Boulevard|Blvd)\s*(?:NW|NE|SW|SE)?)/i);
+    if (atMatch) {
+      let addr = atMatch[1].trim();
+      if (!addr.toLowerCase().includes('washington')) {
+        addr += ', Washington, DC';
+      }
+      return addr;
+    }
+    
+    // Pattern: Just "NW" or quadrant with street name
+    const streetMatch = description.match(/(\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+)?\s*(?:Street|St|Avenue|Ave|Road|Rd|Place|Pl|Drive|Dr|Way|Boulevard|Blvd)\s*(?:NW|NE|SW|SE))/i);
+    if (streetMatch) {
+      return streetMatch[1].trim() + ', Washington, DC';
+    }
+    
+    return null;
+  }
+
+  /**
+   * Generate a deterministic offset for locations that couldn't be geocoded.
    * Uses a simple hash to ensure the same description always maps to the same location.
-   * This prevents markers from jumping around on each data refresh.
-   *
-   * TODO: Integrate a geocoding service (Nominatim, Google Maps, etc.) for accurate locations.
    */
   private deterministicOffset(text: string): { latOffset: number; lngOffset: number } {
-    // Create a simple hash from the text
     let hash1 = 0;
     let hash2 = 0;
     for (let i = 0; i < text.length; i++) {
@@ -375,8 +434,6 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       hash2 = ((hash2 << 7) - hash2 + char) & 0xffffffff;
     }
 
-    // Convert to offset in range [-0.025, 0.025] (roughly DC bounds)
-    // This spreads alerts across approximately 3 miles in each direction
     const latOffset = ((hash1 % 10000) / 10000 - 0.5) * 0.05;
     const lngOffset = ((hash2 % 10000) / 10000 - 0.5) * 0.05;
 

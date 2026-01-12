@@ -1,4 +1,4 @@
-import type { Incident, Camera, WeatherAlert, AirQuality, CurrentWeather } from '../types/index.js';
+import type { Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft } from '../types/index.js';
 import { nwsWeatherFetcher } from '../fetchers/nws-weather.js';
 import { currentWeatherFetcher } from '../fetchers/current-weather.js';
 import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
@@ -14,11 +14,18 @@ import { airnowFetcher } from '../fetchers/airnow.js';
 import { openMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { pulsePointFetcher } from '../fetchers/pulsepoint.js';
+import { openskyFetcher } from '../fetchers/opensky.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
+import { cache } from './cache.js';
+import { geocache } from './geocache.js';
 import config from '../config.js';
 import logger from '../logger.js';
+
+// Redis key for persisted incidents
+const INCIDENTS_CACHE_KEY = 'incidents:active';
+const INCIDENTS_CACHE_TTL = 24 * 60 * 60; // 24 hours
 
 interface AggregatedData {
   incidents: Incident[];
@@ -26,6 +33,7 @@ interface AggregatedData {
   weather: WeatherAlert[];
   airQuality: AirQuality[];
   currentWeather: CurrentWeather | null;
+  aircraft: Aircraft[];
 }
 
 class AggregatorService {
@@ -34,6 +42,7 @@ class AggregatorService {
   private weatherAlerts: Map<string, WeatherAlert> = new Map();
   private airQuality: AirQuality[] = [];
   private currentWeather: CurrentWeather | null = null;
+  private aircraft: Map<string, Aircraft> = new Map();
   private initialized = false;
   /**
    * Convert a millisecond interval into a cron expression.
@@ -71,17 +80,76 @@ class AggregatorService {
 
     logger.info('Initializing aggregator service');
 
-    // Schedule all fetchers
+    // Step 1: Initialize geocache (loads cached geocoded addresses from Redis)
+    await geocache.initialize();
+    const geoStats = geocache.getStats();
+    logger.info(`Geocache initialized with ${geoStats.memorySize} cached addresses`);
+
+    // Step 2: Load cached incidents from Redis (instant data for clients)
+    await this.loadCachedIncidents();
+
+    // Step 3: Schedule all fetchers
     this.scheduleAllFetchers();
 
-    // Do initial fetch (single pass) to seed data
-    await this.fetchAll();
-
+    // Step 4: Start fetching fresh data (non-blocking for faster startup)
     this.initialized = true;
-    logger.info('Aggregator service initialized');
+    logger.info('Aggregator service initialized - fetching fresh data in background');
+    
+    // Fetch fresh data without blocking
+    this.fetchAll().catch(err => {
+      logger.warn('Background fetch error:', { error: err });
+    });
+  }
+
+  /**
+   * Load cached incidents from Redis for instant startup
+   */
+  private async loadCachedIncidents(): Promise<void> {
+    try {
+      const cached = await cache.get<Incident[]>(INCIDENTS_CACHE_KEY);
+      
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        const now = Date.now();
+        const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
+        
+        let loadedCount = 0;
+        for (const incident of cached) {
+          // Only load incidents from the last 24 hours
+          const incidentTime = new Date(incident.timestamp).getTime();
+          if (incidentTime >= twentyFourHoursAgo && incident.status === 'active') {
+            this.incidents.set(incident.id, incident);
+            database.upsertIncident(incident);
+            loadedCount++;
+          }
+        }
+        
+        logger.info(`Loaded ${loadedCount} cached incidents from Redis (${cached.length} total in cache)`);
+      } else {
+        logger.debug('No cached incidents found in Redis');
+      }
+    } catch (error) {
+      logger.warn('Failed to load cached incidents:', { error });
+    }
+  }
+
+  /**
+   * Persist current incidents to Redis
+   */
+  private async persistIncidents(): Promise<void> {
+    try {
+      const incidents = Array.from(this.incidents.values());
+      await cache.set(INCIDENTS_CACHE_KEY, incidents, INCIDENTS_CACHE_TTL);
+    } catch (error) {
+      logger.warn('Failed to persist incidents to Redis:', { error });
+    }
   }
 
   private scheduleAllFetchers(): void {
+    // Periodic cleanup of stale incidents (every 10 minutes)
+    scheduler.schedule('incident-cleanup', '*/10 * * * *', async () => {
+      this.cleanupStaleIncidents();
+    }, false);
+
     // Weather alerts (NWS)
     const cronWeather = this.buildCronExpression(config.pollIntervals.weather, '*/2 * * * *');
     scheduler.schedule('weather', cronWeather, async () => {
@@ -152,6 +220,12 @@ class AggregatorService {
         logger.debug('Skipping PulsePoint fetch - no clients connected');
       }
     }, false);
+
+    // Aircraft tracking (OpenSky) - every 30 seconds
+    const cronAircraft = this.buildCronExpression(config.pollIntervals.aircraft, '*/30 * * * * *');
+    scheduler.schedule('aircraft', cronAircraft, async () => {
+      await this.fetchAircraft();
+    }, false);
   }
 
   /**
@@ -169,6 +243,7 @@ class AggregatorService {
       this.fetchTransit(),
       this.fetchAirQuality(),
       this.fetchScanner(),
+      this.fetchAircraft(),
     ];
 
     // Add Twitter fetcher if configured
@@ -349,8 +424,27 @@ class AggregatorService {
     }
   }
 
+  private async fetchAircraft(): Promise<void> {
+    const result = await openskyFetcher.fetch();
+
+    if (result.success && result.data) {
+      // Replace all aircraft with new data (aircraft positions are ephemeral)
+      this.aircraft.clear();
+      for (const aircraft of result.data) {
+        this.aircraft.set(aircraft.id, aircraft);
+      }
+
+      // Broadcast full aircraft list to all clients
+      sse.broadcast('aircraft:update', {
+        aircraft: result.data,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
   private async processIncidents(newIncidents: Incident[]): Promise<void> {
     const processedIds = new Set<string>();
+    let hasChanges = false;
 
     for (const incident of newIncidents) {
       processedIds.add(incident.id);
@@ -361,28 +455,79 @@ class AggregatorService {
         this.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         sse.broadcast('incident:new', incident);
+        hasChanges = true;
       } else if (existing.updatedAt !== incident.updatedAt) {
         // Updated incident
         this.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         sse.broadcast('incident:update', incident);
+        hasChanges = true;
       }
     }
 
     // Check for cleared incidents from this source
+    // IMPORTANT: Don't auto-clear PulsePoint incidents - they only show a limited
+    // number of active incidents, so absence doesn't mean cleared.
+    // Same for crime data which shows last 24h, not necessarily all active.
     const sourcePrefix = newIncidents[0]?.source;
-    if (sourcePrefix) {
+    const sourcesWithCompleteListing = ['mdchart', 'dc-traffic', 'wmata', 'alertdc'];
+    
+    if (sourcePrefix && sourcesWithCompleteListing.includes(sourcePrefix)) {
       for (const [id, incident] of this.incidents) {
         if (incident.source === sourcePrefix && !processedIds.has(id)) {
-          // Incident no longer in feed - might be cleared
+          // Incident no longer in feed - mark as cleared
           if (incident.status === 'active') {
             incident.status = 'cleared';
             incident.updatedAt = new Date().toISOString();
             database.updateIncidentStatus(id, 'cleared');
             sse.broadcast('incident:clear', { id });
+            hasChanges = true;
           }
         }
       }
+    }
+
+    // Persist to Redis if there were changes (debounced)
+    if (hasChanges) {
+      this.persistIncidents().catch(() => {});
+    }
+  }
+
+  /**
+   * Clean up stale incidents that haven't been updated
+   * This handles sources like PulsePoint that don't provide complete listings
+   */
+  private cleanupStaleIncidents(): void {
+    const now = Date.now();
+    let clearedCount = 0;
+
+    // Different expiration times by source
+    const expirationMs: Record<string, number> = {
+      'pulsepoint': 4 * 60 * 60 * 1000,    // 4 hours - fire/EMS calls usually resolve quickly
+      'dc-crime': 24 * 60 * 60 * 1000,     // 24 hours - crime reports
+      'dc-shotspotter': 12 * 60 * 60 * 1000, // 12 hours - gunshot detections
+      'scanner': 2 * 60 * 60 * 1000,       // 2 hours - scanner activity
+      'default': 24 * 60 * 60 * 1000,      // 24 hours default
+    };
+
+    for (const [id, incident] of this.incidents) {
+      if (incident.status !== 'active') continue;
+
+      const incidentAge = now - new Date(incident.timestamp).getTime();
+      const maxAge = expirationMs[incident.source] || expirationMs['default'];
+
+      if (incidentAge > maxAge) {
+        incident.status = 'cleared';
+        incident.updatedAt = new Date().toISOString();
+        database.updateIncidentStatus(id, 'cleared');
+        sse.broadcast('incident:clear', { id });
+        clearedCount++;
+      }
+    }
+
+    if (clearedCount > 0) {
+      logger.info(`Cleaned up ${clearedCount} stale incidents`);
+      this.persistIncidents().catch(() => {});
     }
   }
 
@@ -398,6 +543,7 @@ class AggregatorService {
       weather: Array.from(this.weatherAlerts.values()),
       airQuality: this.airQuality,
       currentWeather: this.currentWeather,
+      aircraft: Array.from(this.aircraft.values()),
     };
   }
 
@@ -448,6 +594,13 @@ class AggregatorService {
    */
   getAirQuality(): AirQuality[] {
     return this.airQuality;
+  }
+
+  /**
+   * Get aircraft data
+   */
+  getAircraft(): Aircraft[] {
+    return Array.from(this.aircraft.values());
   }
 
   /**

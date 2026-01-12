@@ -38,7 +38,30 @@ router.get('/', (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'aqi:update', data: aqi, timestamp: new Date().toISOString() })}\n\n`);
   }
 
-  logger.info('Initial data sent to SSE client', { clientId, incidents: data.incidents.length, cameras: data.cameras.length });
+  // Send current weather conditions
+  if (data.currentWeather) {
+    res.write(`event: weather:current\n`);
+    res.write(`data: ${JSON.stringify({ type: 'weather:current', data: data.currentWeather, timestamp: new Date().toISOString() })}\n\n`);
+  }
+
+  // Send aircraft data
+  if (data.aircraft && data.aircraft.length > 0) {
+    res.write(`event: aircraft:update\n`);
+    res.write(`data: ${JSON.stringify({ 
+      type: 'aircraft:update', 
+      data: { aircraft: data.aircraft, timestamp: new Date().toISOString() }, 
+      timestamp: new Date().toISOString() 
+    })}\n\n`);
+  }
+
+  logger.info('Initial data sent to SSE client', { 
+    clientId, 
+    incidents: data.incidents.length, 
+    cameras: data.cameras.length,
+    weatherAlerts: data.weather.length,
+    hasCurrentWeather: !!data.currentWeather,
+    aircraft: data.aircraft?.length || 0
+  });
 });
 
 export default router;

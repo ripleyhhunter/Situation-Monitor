@@ -13,6 +13,11 @@ const configSchema = z.object({
   // API Keys (optional)
   wmataApiKey: z.string().optional(),
   airnowApiKey: z.string().optional(),
+  
+  // OpenSky Network OAuth2 credentials (optional, but recommended for higher rate limits)
+  // Create an API client at https://opensky-network.org/ -> Account -> API Clients
+  openskyClientId: z.string().optional(),
+  openskyClientSecret: z.string().optional(),
 
   // DC Center coordinates
   defaultLat: z.coerce.number().default(38.9072),
@@ -32,6 +37,7 @@ const configSchema = z.object({
     wmata: z.number().default(30 * 1000),                   // 30 seconds
     airQuality: z.number().default(30 * 60 * 1000),         // 30 minutes
     scanner: z.number().default(5 * 60 * 1000),             // 5 minutes
+    aircraft: z.number().default(30 * 1000),                // 30 seconds
   }).default({}),
 
   // Cache TTLs (seconds)
@@ -44,6 +50,7 @@ const configSchema = z.object({
     wmata: z.number().default(15),              // 15 seconds
     airQuality: z.number().default(1800),       // 30 minutes
     scanner: z.number().default(60),            // 1 minute
+    aircraft: z.number().default(25),           // 25 seconds
   }).default({}),
 });
 
@@ -56,6 +63,8 @@ function loadConfig(): Config {
     redisUrl: process.env.REDIS_URL,
     wmataApiKey: process.env.WMATA_API_KEY,
     airnowApiKey: process.env.AIRNOW_API_KEY,
+    openskyClientId: process.env.OPENSKY_CLIENT_ID,
+    openskyClientSecret: process.env.OPENSKY_CLIENT_SECRET,
     defaultLat: process.env.PUBLIC_DEFAULT_LAT,
     defaultLng: process.env.PUBLIC_DEFAULT_LNG,
     corsOrigins: process.env.CORS_ORIGINS,
