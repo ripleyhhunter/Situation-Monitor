@@ -137,4 +137,46 @@
   >
     Reset Filters
   </button>
+
+  <!-- Data Sources Info -->
+  <div class="pt-4 border-t border-gray-200 dark:border-gray-700">
+    <details class="group">
+      <summary class="flex items-center justify-between cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">
+        <span>ℹ️ About Data Sources</span>
+        <svg class="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </summary>
+      <div class="mt-3 text-xs text-gray-600 dark:text-gray-400 space-y-2">
+        <p><strong>Available in app:</strong></p>
+        <ul class="list-disc list-inside space-y-1 ml-1">
+          <li>Traffic incidents (DC, MD)</li>
+          <li>Crime reports (DC Police)</li>
+          <li>ShotSpotter alerts</li>
+          <li>Major emergency alerts</li>
+          <li>Weather alerts (NWS)</li>
+          <li>WMATA transit alerts</li>
+        </ul>
+        <p class="pt-2"><strong>Fire/EMS:</strong> DC doesn't publish real-time dispatch data. For live Fire/EMS:</p>
+        <div class="flex flex-wrap gap-2 pt-1">
+          <a
+            href="https://www.pulsepoint.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded text-xs hover:bg-red-200 dark:hover:bg-red-900/50"
+          >
+            📱 PulsePoint App
+          </a>
+          <a
+            href="https://www.broadcastify.com/calls/playlists/?uuid=1c951e2a-efd3-11ef-9e04-0e98d5b32039"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs hover:bg-blue-200 dark:hover:bg-blue-900/50"
+          >
+            🎧 DC Fire/EMS Audio
+          </a>
+        </div>
+      </div>
+    </details>
+  </div>
 </div>

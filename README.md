@@ -115,12 +115,21 @@ API keys:
 |--------|------|------------------|
 | MD CHART | Traffic cameras, incidents, road closures | 1-5 min |
 | DC Open Data | Crime incidents, ShotSpotter gunshots | 5-15 min |
+| DC HSEMA | Traffic incidents | 1 min |
+| AlertDC | Major emergency alerts | 2 min |
 | NWS | Weather alerts, watches, warnings | 2 min |
 | WMATA | Metro service alerts (API key required) | 30 sec |
 | AirNow | Air quality index (API key required) | 30 min |
-| Broadcastify | DC Fire/EMS scanner audio | Live |
 
-**Note:** DC Metro Police radios have been fully encrypted since 2011. Only Fire/EMS scanner feeds are available.
+### Fire/EMS Data Limitations
+
+⚠️ **Washington DC does not publish real-time Fire/EMS CAD (dispatch) data publicly.** This app can only show major emergency alerts (via AlertDC), not individual fire/medical calls.
+
+For real-time Fire/EMS incidents with locations, use:
+- **[PulsePoint App](https://www.pulsepoint.org/)** (recommended) - DC Fire/EMS participates. Shows live incidents on a map.
+- **[Broadcastify Calls](https://www.broadcastify.com/calls/)** - Listen to archived radio calls (requires free account)
+
+**Note:** DC Metro Police radios have been fully encrypted since 2011.
 
 ## Project Structure
 

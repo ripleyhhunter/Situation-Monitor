@@ -6,7 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Situation Monitor is a real-time situation monitoring dashboard for Washington D.C. that aggregates traffic cameras, emergency incidents, crime data, scanner feeds, weather alerts, and air quality data into a unified map-based interface.
 
-**Key Discovery:** DC Metro Police radios are fully encrypted since 2011 - only Fire/EMS scanner feeds are available.
+**Key Limitations:**
+- DC Metro Police radios are fully encrypted since 2011
+- **DC does NOT publish real-time Fire/EMS CAD data publicly** - only major AlertDC alerts are available, not individual fire/medical dispatches
+- For live Fire/EMS incidents with locations, recommend users to PulsePoint app (DC participates)
 
 ## Build & Development Commands
 

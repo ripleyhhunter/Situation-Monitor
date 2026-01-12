@@ -40,28 +40,27 @@ export class OpenMHzFetcher extends BaseFetcher<Incident> {
   }
 
   protected async fetchFromApi(): Promise<Incident[]> {
-    const url = `https://api.openmhz.com/${this.systemId}/calls`;
-
-    try {
-      const response = await this.httpGet<OpenMHzResponse>(url, {
-        timeout: 15000,
-        retries: 1,
-      });
-
-      const calls = response.calls || (Array.isArray(response) ? response : []);
-
-      if (!Array.isArray(calls)) {
-        logger.warn('OpenMHz response has unexpected format');
-        return [];
-      }
-
-      return calls
-        .filter((call) => this.isRecentCall(call))
-        .map((call) => this.normalizeCall(call));
-    } catch (error) {
-      logger.debug(`OpenMHz API unavailable for ${this.systemId}`);
-      return [];
-    }
+    // NOTE: OpenMHz does not have a public API - the endpoint returns 403 Forbidden
+    // This fetcher is kept as a placeholder for future integration if they add one
+    // For now, we return empty array silently to avoid log spam
+    
+    // The website at openmhz.com/system/dcfd works but requires browser-based access
+    // There is no documented public REST API for fetching calls programmatically
+    
+    logger.debug(`OpenMHz: No public API available for ${this.systemId}, returning empty`);
+    return [];
+    
+    // Original code kept for reference if API becomes available:
+    // const url = `https://api.openmhz.com/${this.systemId}/calls`;
+    // try {
+    //   const response = await this.httpGet<OpenMHzResponse>(url, { timeout: 15000, retries: 1 });
+    //   const calls = response.calls || (Array.isArray(response) ? response : []);
+    //   if (!Array.isArray(calls)) { return []; }
+    //   return calls.filter((call) => this.isRecentCall(call)).map((call) => this.normalizeCall(call));
+    // } catch (error) {
+    //   logger.debug(`OpenMHz API unavailable for ${this.systemId}`);
+    //   return [];
+    // }
   }
 
   private isRecentCall(call: OpenMHzCall): boolean {
