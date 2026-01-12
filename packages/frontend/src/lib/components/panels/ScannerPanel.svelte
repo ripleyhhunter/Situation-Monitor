@@ -131,7 +131,7 @@
   <!-- Info about available feeds -->
   <div class="p-2 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800">
     <p class="text-xs text-green-800 dark:text-green-200">
-      <strong>🔥 Fire/EMS incidents are now shown on the map!</strong> Data from DC Fire & EMS via PulsePoint. DC Police radios are encrypted.
+      <strong>🔥 Fire/EMS incidents are live on the map!</strong> Data from DC Fire & EMS via PulsePoint, updated every 2 minutes. DC Police radios are encrypted since 2011.
     </p>
   </div>
 

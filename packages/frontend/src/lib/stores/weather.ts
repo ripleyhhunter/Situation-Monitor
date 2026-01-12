@@ -1,5 +1,12 @@
 import { writable, derived } from 'svelte/store';
-import type { WeatherAlert, AirQuality } from '$types';
+import type { WeatherAlert, AirQuality, CurrentWeather } from '$types';
+
+// Store for current weather conditions
+export const currentWeather = writable<CurrentWeather | null>(null);
+
+export function setCurrentWeather(weather: CurrentWeather | null): void {
+  currentWeather.set(weather);
+}
 
 // Store for weather alerts
 export const weatherAlerts = writable<Map<string, WeatherAlert>>(new Map());

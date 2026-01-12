@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { mapState, userLocation, setMapBounds, DC_CENTER, DEFAULT_ZOOM, centerOnDC } from '$stores/location';
+  import { mapState, userLocation, setMapBounds, DC_CENTER, DEFAULT_ZOOM, centerOnDC, searchLocation } from '$stores/location';
   import { filteredIncidents } from '$stores/filters';
   import { filteredCameraList, selectCamera } from '$stores/cameras';
   import { selectIncident, selectedIncident } from '$stores/incidents';
@@ -16,7 +16,10 @@
   let incidentMarkers: L.MarkerClusterGroup | null = null;
   let cameraMarkers: L.LayerGroup | null = null;
   let userMarker: L.Marker | null = null;
+  let searchMarker: L.Marker | null = null;
   let weatherLayers: L.LayerGroup | null = null;
+  let heatmapLayer: L.Layer | null = null;
+  let heatLayerLoaded = false;
 
   onMount(async () => {
     if (!browser) return;
@@ -62,6 +65,14 @@
 
     cameraMarkers = L.layerGroup().addTo(map);
     weatherLayers = L.layerGroup().addTo(map);
+
+    // Load heatmap plugin
+    try {
+      await import('leaflet.heat');
+      heatLayerLoaded = true;
+    } catch (e) {
+      console.warn('Failed to load leaflet.heat:', e);
+    }
 
     // Update bounds on move
     map.on('moveend', () => {
@@ -124,8 +135,12 @@
   });
 
   // Update incident markers when filtered incidents change
+  // When heatmap is enabled, exclude crime/gunshot from markers (shown as heatmap instead)
   $: if (incidentMarkers && L && $filteredIncidents) {
-    updateIncidentMarkers($filteredIncidents);
+    const markersToShow = $filters.showCrimeHeatmap
+      ? $filteredIncidents.filter(i => i.type !== 'crime' && i.type !== 'gunshot')
+      : $filteredIncidents;
+    updateIncidentMarkers(markersToShow);
   }
 
   // Update camera markers when cameras change
@@ -147,9 +162,59 @@
     weatherLayers.clearLayers();
   }
 
+  // Update crime heatmap
+  $: if (map && L && heatLayerLoaded && $filters.showCrimeHeatmap) {
+    const crimeIncidents = $filteredIncidents.filter(i => i.type === 'crime' || i.type === 'gunshot');
+    updateHeatmap(crimeIncidents);
+  } else if (map && heatmapLayer) {
+    map.removeLayer(heatmapLayer);
+    heatmapLayer = null;
+  }
+
   // Center map when incident is selected
   $: if (map && $selectedIncident) {
-    map.setView([$selectedIncident.location.lat, $selectedIncident.location.lng], 15);
+    map.setView([$selectedIncident.location.lat, $selectedIncident.location.lng], 17);
+  }
+
+  // Pan to search location when user searches
+  $: if (map && L && $searchLocation) {
+    panToSearchLocation($searchLocation);
+  }
+
+  function panToSearchLocation(location: { lat: number; lng: number; name: string }) {
+    if (!map || !L) return;
+
+    // Pan to the location with a nice zoom level
+    map.setView([location.lat, location.lng], 16);
+
+    // Add or update search marker
+    if (searchMarker) {
+      searchMarker.setLatLng([location.lat, location.lng]);
+      searchMarker.setPopupContent(`<strong>📍 ${location.name}</strong>`);
+    } else {
+      const icon = L.divIcon({
+        className: '',
+        html: `
+          <div style="width: 32px; height: 32px; background: #6366f1; border: 3px solid white; border-radius: 50%; box-shadow: 0 3px 8px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="white" stroke="none">
+              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+      searchMarker = L.marker([location.lat, location.lng], { icon, zIndexOffset: 900 }).addTo(map);
+      searchMarker.bindPopup(`<strong>📍 ${location.name}</strong>`).openPopup();
+    }
+
+    // Clear the search marker after 10 seconds
+    setTimeout(() => {
+      if (searchMarker && map) {
+        map.removeLayer(searchMarker);
+        searchMarker = null;
+      }
+    }, 10000);
   }
 
   function updateIncidentMarkers(incidents: Incident[]) {
@@ -259,6 +324,44 @@
       extreme: '#ef4444',
     };
     return colors[severity] || '#6b7280';
+  }
+
+  function updateHeatmap(incidents: Incident[]) {
+    if (!map || !L || !heatLayerLoaded) return;
+
+    // Remove existing heatmap layer
+    if (heatmapLayer) {
+      map.removeLayer(heatmapLayer);
+    }
+
+    if (incidents.length === 0) {
+      heatmapLayer = null;
+      return;
+    }
+
+    // Create heatmap data points [lat, lng, intensity]
+    // Intensity is based on severity (1-5)
+    const heatData: [number, number, number][] = incidents.map(incident => [
+      incident.location.lat,
+      incident.location.lng,
+      incident.severity * 0.2 // Normalize severity to 0.2-1.0 range
+    ]);
+
+    // Create heatmap layer using the L.heatLayer function added by leaflet.heat
+    // @ts-ignore - leaflet.heat extends L with heatLayer
+    heatmapLayer = L.heatLayer(heatData, {
+      radius: 25,
+      blur: 15,
+      maxZoom: 17,
+      max: 1.0,
+      gradient: {
+        0.2: '#22c55e',  // Green (low)
+        0.4: '#eab308',  // Yellow
+        0.6: '#f97316',  // Orange
+        0.8: '#ef4444',  // Red
+        1.0: '#dc2626',  // Dark red (high)
+      }
+    }).addTo(map);
   }
 
   function getIncidentIcon(type: string): string {

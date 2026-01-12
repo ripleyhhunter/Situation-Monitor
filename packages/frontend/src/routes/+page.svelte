@@ -7,7 +7,7 @@
   import CameraModal from '$components/modals/CameraModal.svelte';
   import IncidentModal from '$components/modals/IncidentModal.svelte';
   import WeatherBanner from '$components/panels/WeatherBanner.svelte';
-  import { sidebarOpen, requestUserLocation } from '$stores/location';
+  import { sidebarOpen, requestUserLocation, searchLocation } from '$stores/location';
   import { selectedCamera } from '$stores/cameras';
   import { selectedIncident } from '$stores/incidents';
   import { activeWeatherAlerts } from '$stores/weather';
@@ -18,6 +18,12 @@
     // Request user location on load
     requestUserLocation();
   });
+
+  function handleSearch(event: CustomEvent<{ lat: number; lng: number; name: string }>) {
+    const { lat, lng, name } = event.detail;
+    // Update the search location store - MapContainer reacts to this
+    searchLocation.set({ lat, lng, name });
+  }
 </script>
 
 <svelte:head>
@@ -26,7 +32,7 @@
 
 <div class="h-screen flex flex-col overflow-hidden">
   <!-- Header -->
-  <Header bind:showScanner />
+  <Header bind:showScanner on:search={handleSearch} />
 
   <!-- Weather Alert Banner -->
   {#if $activeWeatherAlerts.length > 0}

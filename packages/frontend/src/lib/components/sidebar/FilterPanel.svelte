@@ -6,6 +6,7 @@
     toggleCameras,
     toggleLocationOnlyCameras,
     toggleWeather,
+    toggleCrimeHeatmap,
     setTimeRange,
     resetFilters,
   } from '$stores/filters';
@@ -142,6 +143,18 @@
         </svg>
         <span class="text-sm text-gray-700 dark:text-gray-300">Weather Alerts</span>
       </label>
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={$filters.showCrimeHeatmap}
+          on:change={toggleCrimeHeatmap}
+          class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+        />
+        <svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
+        </svg>
+        <span class="text-sm text-gray-700 dark:text-gray-300">Crime Heatmap</span>
+      </label>
     </div>
   </div>
 
@@ -162,17 +175,43 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
         </svg>
       </summary>
-      <div class="mt-3 text-xs text-gray-600 dark:text-gray-400 space-y-2">
-        <p><strong>Available in app:</strong></p>
-        <ul class="list-disc list-inside space-y-1 ml-1">
-          <li>Traffic incidents (DC, MD)</li>
-          <li>Crime reports (DC Police)</li>
-          <li>ShotSpotter alerts</li>
-          <li>Major emergency alerts</li>
-          <li>Weather alerts (NWS)</li>
-          <li>WMATA transit alerts</li>
-        </ul>
-        <p class="pt-2"><strong>Fire/EMS:</strong> DC doesn't publish real-time dispatch data. For live Fire/EMS:</p>
+      <div class="mt-3 text-xs text-gray-600 dark:text-gray-400 space-y-3">
+        <div>
+          <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">🔥 Fire/EMS</p>
+          <p>Live incidents from DC Fire & EMS via PulsePoint. Updated every 2 minutes.</p>
+        </div>
+        
+        <div>
+          <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">🚗 Traffic</p>
+          <p>MD CHART + DC HSEMA: crashes, road closures, construction. Updated every minute.</p>
+        </div>
+        
+        <div>
+          <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">🔫 Crime & Gunshots</p>
+          <p>DC Open Data: last 30 days of crime reports + ShotSpotter gunshot detection.</p>
+        </div>
+        
+        <div>
+          <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">🚇 Metro</p>
+          <p>WMATA service alerts and delays. Header shows affected lines with color badges.</p>
+        </div>
+        
+        <div>
+          <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">🌤️ Weather</p>
+          <p>Current conditions (Open-Meteo) + NWS severe weather alerts with map polygons.</p>
+        </div>
+        
+        <div>
+          <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">📹 Cameras</p>
+          <p>100+ feeds: MD CHART highways, DC DOT streets, plus curated landmark webcams (Capitol, Monument, FOX 5 DC, etc.)</p>
+        </div>
+
+        <div class="pt-2 border-t border-gray-200 dark:border-gray-600">
+          <p class="text-gray-500 dark:text-gray-400">
+            <strong>Note:</strong> DC Metro Police radios are encrypted. No police scanner data available.
+          </p>
+        </div>
+
         <div class="flex flex-wrap gap-2 pt-1">
           <a
             href="https://www.pulsepoint.org/"
@@ -189,6 +228,14 @@
             class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs hover:bg-blue-200 dark:hover:bg-blue-900/50"
           >
             🎧 DC Fire/EMS Audio
+          </a>
+          <a
+            href="https://www.fox5dc.com/live-weather-cameras-across-dc-maryland-and-virginia"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs hover:bg-purple-200 dark:hover:bg-purple-900/50"
+          >
+            📺 FOX 5 Skycams
           </a>
         </div>
       </div>

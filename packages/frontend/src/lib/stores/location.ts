@@ -113,3 +113,12 @@ export const sidebarOpen = writable<boolean>(true);
 export function toggleSidebar(): void {
   sidebarOpen.update((open) => !open);
 }
+
+// Search location - set when user searches for an address
+export interface SearchResult {
+  lat: number;
+  lng: number;
+  name: string;
+}
+
+export const searchLocation = writable<SearchResult | null>(null);

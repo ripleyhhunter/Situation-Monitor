@@ -1,13 +1,36 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import { connectionStatus, lastEventTime } from '$services/sse';
   import { darkMode, toggleDarkMode, sidebarOpen, toggleSidebar } from '$stores/location';
-  import { airQuality, aqiColor, aqiDescription } from '$stores/weather';
-  import { incidentCounts } from '$stores/incidents';
+  import { airQuality, aqiColor, aqiDescription, currentWeather } from '$stores/weather';
+  import { incidentCounts, metroDelays } from '$stores/incidents';
   import { formatRelativeTime } from '$utils/time';
+  import SearchBar from './SearchBar.svelte';
 
   export let showScanner = false;
 
+  const dispatch = createEventDispatcher<{
+    search: { lat: number; lng: number; name: string };
+  }>();
+
   $: totalIncidents = Object.values($incidentCounts).reduce((a, b) => a + b, 0);
+
+  // Get short line code for display
+  function getLineCode(line: string): string {
+    const codes: Record<string, string> = {
+      'Red Line': 'RD',
+      'Blue Line': 'BL',
+      'Orange Line': 'OR',
+      'Silver Line': 'SV',
+      'Green Line': 'GR',
+      'Yellow Line': 'YL',
+    };
+    return codes[line] || line.substring(0, 2).toUpperCase();
+  }
+
+  function handleSearch(event: CustomEvent<{ lat: number; lng: number; name: string }>) {
+    dispatch('search', event.detail);
+  }
 </script>
 
 <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 z-50">
@@ -41,12 +64,32 @@
         </h1>
         <span class="text-xs text-gray-500 dark:text-gray-400 hidden md:block">DC</span>
       </div>
+
+      <!-- Search Bar -->
+      <div class="hidden sm:block w-48 lg:w-64">
+        <SearchBar on:select={handleSearch} />
+      </div>
     </div>
 
     <!-- Center section - Stats -->
-    <div class="hidden md:flex items-center gap-6">
+    <div class="hidden md:flex items-center gap-4 lg:gap-6 overflow-x-auto">
+      <!-- Current Weather -->
+      {#if $currentWeather}
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <span class="text-lg" title={$currentWeather.description}>
+            {$currentWeather.icon}
+          </span>
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {Math.round($currentWeather.temperature)}°F
+          </span>
+          <span class="text-xs text-gray-500 dark:text-gray-400 hidden lg:inline">
+            {$currentWeather.description}
+          </span>
+        </div>
+      {/if}
+
       <!-- Active Incidents -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
         <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {totalIncidents} Active
@@ -55,7 +98,7 @@
 
       <!-- AQI -->
       {#if $airQuality}
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-shrink-0">
           <div
             class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
             style="background-color: {$aqiColor}; color: {$airQuality.aqi > 100 ? 'white' : 'black'}"
@@ -66,8 +109,32 @@
         </div>
       {/if}
 
+      <!-- Metro Delays -->
+      {#if $metroDelays.length > 0}
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4h8a2 2 0 012 2v10a2 2 0 01-2 2H8a2 2 0 01-2-2V6a2 2 0 012-2z"/>
+            <circle cx="9" cy="14" r="1"/>
+            <circle cx="15" cy="14" r="1"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 18v2m6-2v2"/>
+          </svg>
+          <div class="flex items-center gap-1">
+            {#each $metroDelays as delay}
+              <span
+                class="px-1.5 py-0.5 text-xs font-bold rounded"
+                style="background-color: {delay.color}; color: {delay.line === 'Yellow Line' ? '#000' : '#fff'}"
+                title="{delay.line}: {delay.severity} ({delay.count} alert{delay.count > 1 ? 's' : ''})"
+              >
+                {getLineCode(delay.line)}
+              </span>
+            {/each}
+          </div>
+          <span class="text-xs text-gray-500 dark:text-gray-400">delays</span>
+        </div>
+      {/if}
+
       <!-- Connection Status -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <div
           class="w-2 h-2 rounded-full"
           class:bg-green-500={$connectionStatus === 'connected'}

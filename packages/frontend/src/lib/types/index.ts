@@ -91,6 +91,18 @@ export interface AirQuality {
   description?: string;
 }
 
+// Current Weather types
+export interface CurrentWeather {
+  temperature: number;
+  feelsLike: number;
+  humidity: number;
+  windSpeed: number;
+  windDirection: string;
+  description: string;
+  icon: string;
+  timestamp: string;
+}
+
 // SSE Event types
 export type SSEEventType =
   | 'incident:new'
@@ -99,6 +111,7 @@ export type SSEEventType =
   | 'camera:update'
   | 'weather:alert'
   | 'weather:clear'
+  | 'weather:current'
   | 'transit:update'
   | 'aqi:update'
   | 'heartbeat'
@@ -117,6 +130,7 @@ export interface FilterState {
   showCameras: boolean;
   showLocationOnlyCameras: boolean;
   showWeather: boolean;
+  showCrimeHeatmap: boolean;
   timeRange: 'all' | '1h' | '6h' | '24h';
 }
 

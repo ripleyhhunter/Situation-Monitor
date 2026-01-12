@@ -9,6 +9,7 @@ const defaultFilters: FilterState = {
   showCameras: true,
   showLocationOnlyCameras: false, // Hide DC cameras (no image/stream) by default
   showWeather: true,
+  showCrimeHeatmap: false, // Toggle between markers and heatmap for crime data
   timeRange: '24h',
 };
 
@@ -46,6 +47,11 @@ export function toggleLocationOnlyCameras(): void {
 // Toggle weather visibility
 export function toggleWeather(): void {
   filters.update((f) => ({ ...f, showWeather: !f.showWeather }));
+}
+
+// Toggle crime heatmap
+export function toggleCrimeHeatmap(): void {
+  filters.update((f) => ({ ...f, showCrimeHeatmap: !f.showCrimeHeatmap }));
 }
 
 // Set time range

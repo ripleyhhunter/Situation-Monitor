@@ -1,5 +1,6 @@
-import type { Incident, Camera, WeatherAlert, AirQuality } from '../types/index.js';
+import type { Incident, Camera, WeatherAlert, AirQuality, CurrentWeather } from '../types/index.js';
 import { nwsWeatherFetcher } from '../fetchers/nws-weather.js';
+import { currentWeatherFetcher } from '../fetchers/current-weather.js';
 import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
 import { dcCamerasFetcher } from '../fetchers/dc-cameras.js';
 import { landmarkWebcamsFetcher } from '../fetchers/landmark-webcams.js';
@@ -24,6 +25,7 @@ interface AggregatedData {
   cameras: Camera[];
   weather: WeatherAlert[];
   airQuality: AirQuality[];
+  currentWeather: CurrentWeather | null;
 }
 
 class AggregatorService {
@@ -31,6 +33,7 @@ class AggregatorService {
   private cameras: Map<string, Camera> = new Map();
   private weatherAlerts: Map<string, WeatherAlert> = new Map();
   private airQuality: AirQuality[] = [];
+  private currentWeather: CurrentWeather | null = null;
   private initialized = false;
   /**
    * Convert a millisecond interval into a cron expression.
@@ -79,9 +82,15 @@ class AggregatorService {
   }
 
   private scheduleAllFetchers(): void {
+    // Weather alerts (NWS)
     const cronWeather = this.buildCronExpression(config.pollIntervals.weather, '*/2 * * * *');
     scheduler.schedule('weather', cronWeather, async () => {
       await this.fetchWeather();
+    }, false);
+
+    // Current weather conditions (Open-Meteo) - every 5 minutes
+    scheduler.schedule('current-weather', '*/5 * * * *', async () => {
+      await this.fetchCurrentWeather();
     }, false);
 
     const cronCameras = this.buildCronExpression(config.pollIntervals.trafficCameras, '*/5 * * * *');
@@ -134,9 +143,14 @@ class AggregatorService {
       }, false);
     }
 
-    // PulsePoint Fire/EMS incidents - every 2 minutes
+    // PulsePoint Fire/EMS incidents - every 2 minutes (only when clients connected)
     scheduler.schedule('pulsepoint', '*/2 * * * *', async () => {
-      await this.fetchPulsePoint();
+      // Only run Puppeteer-based fetcher when frontend clients are actually connected
+      if (sse.getClientCount() > 0) {
+        await this.fetchPulsePoint();
+      } else {
+        logger.debug('Skipping PulsePoint fetch - no clients connected');
+      }
     }, false);
   }
 
@@ -146,6 +160,7 @@ class AggregatorService {
   async fetchAll(): Promise<void> {
     const fetchers = [
       this.fetchWeather(),
+      this.fetchCurrentWeather(),
       this.fetchCameras(),
       this.fetchTrafficIncidents(),
       this.fetchCrime(),
@@ -154,12 +169,16 @@ class AggregatorService {
       this.fetchTransit(),
       this.fetchAirQuality(),
       this.fetchScanner(),
-      this.fetchPulsePoint(),
     ];
 
     // Add Twitter fetcher if configured
     if (process.env.TWITTER_BEARER_TOKEN) {
       fetchers.push(this.fetchDCFireEMSTwitter());
+    }
+
+    // Only fetch PulsePoint if clients are connected (avoids running Puppeteer at startup)
+    if (sse.getClientCount() > 0) {
+      fetchers.push(this.fetchPulsePoint());
     }
 
     await Promise.all(fetchers);
@@ -290,6 +309,22 @@ class AggregatorService {
     }
   }
 
+  private async fetchCurrentWeather(): Promise<void> {
+    const result = await currentWeatherFetcher.fetch();
+
+    if (result.success && result.data && result.data.length > 0) {
+      const weather = result.data[0];
+      
+      // Only broadcast if data changed
+      if (!this.currentWeather || 
+          this.currentWeather.temperature !== weather.temperature ||
+          this.currentWeather.description !== weather.description) {
+        this.currentWeather = weather;
+        sse.broadcast('weather:current', weather);
+      }
+    }
+  }
+
   private async fetchScanner(): Promise<void> {
     const result = await openMHzFetcher.fetch();
 
@@ -362,7 +397,15 @@ class AggregatorService {
       cameras: Array.from(this.cameras.values()),
       weather: Array.from(this.weatherAlerts.values()),
       airQuality: this.airQuality,
+      currentWeather: this.currentWeather,
     };
+  }
+
+  /**
+   * Get current weather conditions
+   */
+  getCurrentWeather(): CurrentWeather | null {
+    return this.currentWeather;
   }
 
   /**

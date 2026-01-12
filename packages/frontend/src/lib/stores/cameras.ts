@@ -42,8 +42,9 @@ export const filteredCameraList = derived(
       return allCameras;
     }
     
-    // Hide cameras that have no image URL (location-only markers)
-    return allCameras.filter(camera => camera.imageUrl);
+    // Hide DC cameras which are location-only markers (no public feeds available)
+    // Keep landmark webcams which have working external links via streamUrl
+    return allCameras.filter(camera => camera.source !== 'dc');
   }
 );
 

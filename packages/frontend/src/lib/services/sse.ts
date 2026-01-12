@@ -1,8 +1,8 @@
 import { writable } from 'svelte/store';
-import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality } from '$types';
+import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather } from '$types';
 import { upsertIncident, clearIncident } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
-import { upsertWeatherAlert, removeWeatherAlert, setAirQuality } from '$stores/weather';
+import { upsertWeatherAlert, removeWeatherAlert, setAirQuality, setCurrentWeather } from '$stores/weather';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -104,6 +104,12 @@ class SSEService {
     this.eventSource.addEventListener('aqi:update', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<AirQuality>;
       setAirQuality(data.data);
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('weather:current', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<CurrentWeather>;
+      setCurrentWeather(data.data);
       lastEventTime.set(data.timestamp);
     });
   }
