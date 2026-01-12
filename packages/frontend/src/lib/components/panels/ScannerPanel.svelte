@@ -8,38 +8,65 @@
     name: string;
     description: string;
     url: string;
-    type: 'broadcastify' | 'openmhz';
+    type: 'broadcastify' | 'openmhz' | 'broadcastify-calls';
     popoutUrl?: string;
-    embedUrl?: string;
-    feedId?: string;
   }
 
-  // DC Area Scanner Feeds
+  // DC Area Scanner Feeds - verified from https://www.broadcastify.com/listen/ctid/315
   const scannerFeeds: ScannerFeed[] = [
     {
-      id: 'dc-fire-ems',
-      name: 'DC Fire & EMS',
-      description: 'DCFD Main Dispatch, Firegrounds',
-      url: 'https://www.broadcastify.com/listen/feed/2455',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/2455',
-      type: 'broadcastify',
-      feedId: '2455',
+      id: 'dc-fire-ems-calls',
+      name: 'DC Fire/EMS (Calls)',
+      description: 'DCFD via Broadcastify Calls platform',
+      url: 'https://www.broadcastify.com/calls/playlists/?uuid=1c951e2a-efd3-11ef-9e04-0e98d5b32039',
+      type: 'broadcastify-calls',
     },
     {
       id: 'openmhz-dcfd',
       name: 'OpenMHz - DCFD',
-      description: 'Archived Fire/EMS calls (with playback)',
+      description: 'Archived Fire/EMS calls with playback',
       url: 'https://openmhz.com/system/dcfd',
       type: 'openmhz',
     },
     {
-      id: 'pg-fire',
-      name: "Prince George's County Fire",
-      description: 'PG County Fire/EMS Dispatch',
-      url: 'https://www.broadcastify.com/listen/feed/30921',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/30921',
+      id: 'mwaa-public-safety',
+      name: 'DC Airports Public Safety',
+      description: 'DCA & IAD Fire/Rescue/Police',
+      url: 'https://www.broadcastify.com/listen/feed/1605',
+      popoutUrl: 'https://www.broadcastify.com/listen/feed/1605',
       type: 'broadcastify',
-      feedId: '30921',
+    },
+    {
+      id: 'mutual-aid-md-dc',
+      name: 'MD-DC Mutual Aid',
+      description: 'Interoperability channels',
+      url: 'https://www.broadcastify.com/listen/feed/41616',
+      popoutUrl: 'https://www.broadcastify.com/listen/feed/41616',
+      type: 'broadcastify',
+    },
+    {
+      id: 'wmata-rail',
+      name: 'WMATA MetroRail',
+      description: 'Metro Rail communications',
+      url: 'https://www.broadcastify.com/listen/feed/41617',
+      popoutUrl: 'https://www.broadcastify.com/listen/feed/41617',
+      type: 'broadcastify',
+    },
+    {
+      id: 'pg-fire',
+      name: "Prince George's Co Fire/EMS",
+      description: 'PG County Dispatch & Fireground',
+      url: 'https://www.broadcastify.com/listen/feed/24385',
+      popoutUrl: 'https://www.broadcastify.com/listen/feed/24385',
+      type: 'broadcastify',
+    },
+    {
+      id: 'montgomery-fire',
+      name: 'Montgomery Co Fire Dispatch',
+      description: 'MoCo Fire/Rescue Dispatch',
+      url: 'https://www.broadcastify.com/listen/feed/45306',
+      popoutUrl: 'https://www.broadcastify.com/listen/feed/45306',
+      type: 'broadcastify',
     },
   ];
 
@@ -92,10 +119,10 @@
     </button>
   </div>
 
-  <!-- Warning about police encryption -->
-  <div class="p-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
-    <p class="text-xs text-amber-800 dark:text-amber-200">
-      <strong>Note:</strong> DC Metro Police radios are fully encrypted. Only Fire/EMS is available.
+  <!-- Info about available feeds -->
+  <div class="p-2 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
+    <p class="text-xs text-blue-800 dark:text-blue-200">
+      <strong>Note:</strong> DC Police is encrypted. DC Fire/EMS uses Broadcastify Calls. Nearby counties have live feeds.
     </p>
   </div>
 
@@ -128,12 +155,10 @@
         {#if activePlayer === feed.id && feed.type === 'broadcastify'}
           {@const playerUrl = feed.popoutUrl || feed.url}
           <div class="p-3 bg-gray-50 dark:bg-gray-900/50 space-y-3">
-            <!-- Instructions -->
             <p class="text-xs text-gray-600 dark:text-gray-400 text-center">
               Click below to open the live audio player
             </p>
             
-            <!-- Primary action: Open in popup window -->
             <div class="flex flex-col gap-2">
               <button
                 on:click={() => openInNewWindow(playerUrl)}
@@ -157,9 +182,29 @@
                 Open in New Tab
               </a>
             </div>
+          </div>
+        {/if}
 
+        {#if activePlayer === feed.id && feed.type === 'broadcastify-calls'}
+          <div class="p-3 bg-gray-50 dark:bg-gray-900/50 space-y-3">
+            <p class="text-xs text-gray-600 dark:text-gray-400 text-center">
+              Opens Broadcastify Calls platform (requires free account)
+            </p>
+            
+            <a
+              href={feed.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+            >
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              Open DC Fire/EMS Calls
+            </a>
+            
             <p class="text-xs text-gray-500 dark:text-gray-400 text-center">
-              Audio requires interaction to start (browser policy)
+              Free account required • Listen to recent radio calls
             </p>
           </div>
         {/if}
