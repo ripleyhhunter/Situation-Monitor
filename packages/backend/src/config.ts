@@ -18,12 +18,16 @@ const configSchema = z.object({
   defaultLat: z.coerce.number().default(38.9072),
   defaultLng: z.coerce.number().default(-77.0369),
 
+  // CORS
+  corsOrigins: z.string().optional(),
+
   // Polling intervals (milliseconds)
   pollIntervals: z.object({
     trafficCameras: z.number().default(5 * 60 * 1000),      // 5 minutes
     trafficIncidents: z.number().default(60 * 1000),        // 1 minute
     crime: z.number().default(15 * 60 * 1000),              // 15 minutes
     shotspotter: z.number().default(5 * 60 * 1000),         // 5 minutes
+    alertdc: z.number().default(2 * 60 * 1000),             // 2 minutes
     weather: z.number().default(2 * 60 * 1000),             // 2 minutes
     wmata: z.number().default(30 * 1000),                   // 30 seconds
     airQuality: z.number().default(30 * 60 * 1000),         // 30 minutes
@@ -52,6 +56,7 @@ function loadConfig(): Config {
     airnowApiKey: process.env.AIRNOW_API_KEY,
     defaultLat: process.env.PUBLIC_DEFAULT_LAT,
     defaultLng: process.env.PUBLIC_DEFAULT_LNG,
+    corsOrigins: process.env.CORS_ORIGINS,
     pollIntervals: {},
     cacheTtl: {},
   };

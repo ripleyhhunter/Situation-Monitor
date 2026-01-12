@@ -29,6 +29,33 @@ class AggregatorService {
   private weatherAlerts: Map<string, WeatherAlert> = new Map();
   private airQuality: AirQuality[] = [];
   private initialized = false;
+  /**
+   * Convert a millisecond interval into a cron expression.
+   * Supports second-level scheduling when interval < 60s using 6-field cron.
+   * Falls back to provided defaultExpression if intervalMs is invalid.
+   */
+  private buildCronExpression(intervalMs: number, defaultExpression: string): string {
+    if (!intervalMs || intervalMs <= 0 || Number.isNaN(intervalMs)) {
+      return defaultExpression;
+    }
+
+    // Sub-minute: use seconds field (node-cron supports 6-field format)
+    if (intervalMs < 60000) {
+      const seconds = Math.max(1, Math.round(intervalMs / 1000));
+      return `*/${seconds} * * * * *`;
+    }
+
+    // Minutes
+    const minutes = intervalMs / 60000;
+    if (minutes < 60) {
+      const mins = Math.max(1, Math.round(minutes));
+      return `*/${mins} * * * *`;
+    }
+
+    // Hours or more
+    const hours = Math.max(1, Math.round(minutes / 60));
+    return `0 */${hours} * * *`;
+  }
 
   /**
    * Initialize the aggregator and start scheduled fetching
@@ -41,7 +68,7 @@ class AggregatorService {
     // Schedule all fetchers
     this.scheduleAllFetchers();
 
-    // Do initial fetch
+    // Do initial fetch (single pass) to seed data
     await this.fetchAll();
 
     this.initialized = true;
@@ -49,47 +76,47 @@ class AggregatorService {
   }
 
   private scheduleAllFetchers(): void {
-    // Weather alerts - every 2 minutes
-    scheduler.schedule('weather', '*/2 * * * *', async () => {
+    const cronWeather = this.buildCronExpression(config.pollIntervals.weather, '*/2 * * * *');
+    scheduler.schedule('weather', cronWeather, async () => {
       await this.fetchWeather();
-    });
+    }, false);
 
-    // Traffic cameras - every 5 minutes
-    scheduler.schedule('cameras', '*/5 * * * *', async () => {
+    const cronCameras = this.buildCronExpression(config.pollIntervals.trafficCameras, '*/5 * * * *');
+    scheduler.schedule('cameras', cronCameras, async () => {
       await this.fetchCameras();
-    });
+    }, false);
 
-    // Traffic incidents - every minute
-    scheduler.schedule('traffic-incidents', '* * * * *', async () => {
+    const cronTraffic = this.buildCronExpression(config.pollIntervals.trafficIncidents, '* * * * *');
+    scheduler.schedule('traffic-incidents', cronTraffic, async () => {
       await this.fetchTrafficIncidents();
-    });
+    }, false);
 
-    // Crime data - every 15 minutes
-    scheduler.schedule('crime', '*/15 * * * *', async () => {
+    const cronCrime = this.buildCronExpression(config.pollIntervals.crime, '*/15 * * * *');
+    scheduler.schedule('crime', cronCrime, async () => {
       await this.fetchCrime();
-    });
+    }, false);
 
-    // ShotSpotter - every 5 minutes
-    scheduler.schedule('shotspotter', '*/5 * * * *', async () => {
+    const cronShotspotter = this.buildCronExpression(config.pollIntervals.shotspotter, '*/5 * * * *');
+    scheduler.schedule('shotspotter', cronShotspotter, async () => {
       await this.fetchShotSpotter();
-    });
+    }, false);
 
-    // AlertDC - every 2 minutes (emergency alerts are time-sensitive)
-    scheduler.schedule('alertdc', '*/2 * * * *', async () => {
+    const cronAlertdc = this.buildCronExpression(config.pollIntervals.alertdc, '*/2 * * * *');
+    scheduler.schedule('alertdc', cronAlertdc, async () => {
       await this.fetchAlertDC();
-    });
+    }, false);
 
-    // WMATA - every minute (if API key configured)
     if (config.wmataApiKey) {
-      scheduler.schedule('wmata', '* * * * *', async () => {
+      const cronWmata = this.buildCronExpression(config.pollIntervals.wmata, '* * * * *');
+      scheduler.schedule('wmata', cronWmata, async () => {
         await this.fetchTransit();
-      });
+      }, false);
     }
 
-    // Air quality - every 30 minutes
-    scheduler.schedule('airquality', '*/30 * * * *', async () => {
+    const cronAqi = this.buildCronExpression(config.pollIntervals.airQuality, '*/30 * * * *');
+    scheduler.schedule('airquality', cronAqi, async () => {
       await this.fetchAirQuality();
-    });
+    }, false);
   }
 
   /**

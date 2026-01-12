@@ -46,19 +46,45 @@ npm run dev
 
 The dashboard will be available at http://localhost:5173
 
-### API Keys (Optional)
+### Environment
 
-For full functionality, register for free API keys:
+Create a `.env` in the repo root. Common settings:
+
+```env
+# Backend
+NODE_ENV=development
+PORT=3000
+REDIS_URL=redis://localhost:6379
+
+# API keys (optional, recommended for full data)
+WMATA_API_KEY=your_wmata_key
+AIRNOW_API_KEY=your_airnow_key
+
+# CORS (prod): comma-separated origins, e.g. https://app.example.com,https://admin.example.com
+CORS_ORIGINS=
+
+# Map defaults (frontend + backend)
+PUBLIC_DEFAULT_LAT=38.9072
+PUBLIC_DEFAULT_LNG=-77.0369
+
+# Polling intervals (ms) — optional; leave unset for defaults
+POLL_TRAFFIC_CAMERAS=
+POLL_TRAFFIC_INCIDENTS=
+POLL_CRIME=
+POLL_SHOTSPOTTER=
+POLL_ALERTDC=
+POLL_WEATHER=
+POLL_WMATA=
+POLL_AIRQUALITY=
+
+# Frontend API base (leave empty for same-origin dev)
+PUBLIC_API_URL=
+```
+
+API keys:
 
 - **WMATA** (Metro data): https://developer.wmata.com/
 - **AirNow** (Air quality): https://docs.airnowapi.org/
-
-Add them to your `.env` file:
-
-```env
-WMATA_API_KEY=your_key_here
-AIRNOW_API_KEY=your_key_here
-```
 
 ## Architecture
 
