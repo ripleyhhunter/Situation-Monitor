@@ -31,6 +31,7 @@ const configSchema = z.object({
     weather: z.number().default(2 * 60 * 1000),             // 2 minutes
     wmata: z.number().default(30 * 1000),                   // 30 seconds
     airQuality: z.number().default(30 * 60 * 1000),         // 30 minutes
+    scanner: z.number().default(5 * 60 * 1000),             // 5 minutes
   }).default({}),
 
   // Cache TTLs (seconds)
@@ -42,6 +43,7 @@ const configSchema = z.object({
     weather: z.number().default(60),            // 1 minute
     wmata: z.number().default(15),              // 15 seconds
     airQuality: z.number().default(1800),       // 30 minutes
+    scanner: z.number().default(60),            // 1 minute
   }).default({}),
 });
 

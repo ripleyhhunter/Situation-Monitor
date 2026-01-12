@@ -10,6 +10,7 @@ import { dcTrafficFetcher } from '../fetchers/dc-traffic.js';
 import { alertDCFetcher } from '../fetchers/alertdc.js';
 import { wmataFetcher } from '../fetchers/wmata.js';
 import { airnowFetcher } from '../fetchers/airnow.js';
+import { openMHzFetcher } from '../fetchers/openmhz.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
@@ -117,6 +118,12 @@ class AggregatorService {
     scheduler.schedule('airquality', cronAqi, async () => {
       await this.fetchAirQuality();
     }, false);
+
+    // Scanner feeds (OpenMHz) - every 5 minutes
+    const cronScanner = this.buildCronExpression(config.pollIntervals.scanner, '*/5 * * * *');
+    scheduler.schedule('scanner', cronScanner, async () => {
+      await this.fetchScanner();
+    }, false);
   }
 
   /**
@@ -132,6 +139,7 @@ class AggregatorService {
       this.fetchAlertDC(),
       this.fetchTransit(),
       this.fetchAirQuality(),
+      this.fetchScanner(),
     ]);
   }
 
@@ -257,6 +265,14 @@ class AggregatorService {
       for (const aqi of result.data) {
         sse.broadcast('aqi:update', aqi);
       }
+    }
+  }
+
+  private async fetchScanner(): Promise<void> {
+    const result = await openMHzFetcher.fetch();
+
+    if (result.success && result.data) {
+      await this.processIncidents(result.data);
     }
   }
 

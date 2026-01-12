@@ -35,7 +35,7 @@ export class OpenMHzFetcher extends BaseFetcher<Incident> {
   private systemId: string;
 
   constructor(systemId = 'dcfd') {
-    super(`openmhz-${systemId}`, config.cacheTtl?.scanner || 60);
+    super(`openmhz-${systemId}`, config.cacheTtl.scanner);
     this.systemId = systemId;
   }
 

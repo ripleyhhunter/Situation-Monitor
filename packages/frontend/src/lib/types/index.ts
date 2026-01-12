@@ -16,7 +16,8 @@ export type DataSource =
   | 'alertdc'
   | 'nws'
   | 'wmata'
-  | 'airnow';
+  | 'airnow'
+  | 'openmhz';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 

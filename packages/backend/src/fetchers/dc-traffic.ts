@@ -80,7 +80,7 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
       // Debug: log first feature's attributes to understand available fields
       if (response.features.length > 0) {
         const sampleAttrs = response.features[0].attributes;
-        logger.info(`DC Traffic ${layerName} sample fields:`, { 
+        logger.debug(`DC Traffic ${layerName} sample fields:`, { 
           keys: Object.keys(sampleAttrs),
           starttime: sampleAttrs.starttime,
           endtime: sampleAttrs.endtime,
