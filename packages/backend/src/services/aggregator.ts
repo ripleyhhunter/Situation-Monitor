@@ -1,4 +1,4 @@
-import type { Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft } from '../types/index.js';
+import type { Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem } from '../types/index.js';
 import { nwsWeatherFetcher } from '../fetchers/nws-weather.js';
 import { currentWeatherFetcher } from '../fetchers/current-weather.js';
 import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
@@ -6,6 +6,8 @@ import { dcCamerasFetcher } from '../fetchers/dc-cameras.js';
 import { landmarkWebcamsFetcher } from '../fetchers/landmark-webcams.js';
 import { mdchartIncidentsFetcher } from '../fetchers/mdchart-incidents.js';
 import { dcCrimeFetcher } from '../fetchers/dc-crime.js';
+import { mocoCrimeFetcher } from '../fetchers/moco-crime.js';
+import { pgCrimeFetcher } from '../fetchers/pg-crime.js';
 import { dcShotSpotterFetcher } from '../fetchers/dc-shotspotter.js';
 import { dcTrafficFetcher } from '../fetchers/dc-traffic.js';
 import { alertDCFetcher } from '../fetchers/alertdc.js';
@@ -15,6 +17,7 @@ import { openMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { pulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { openskyFetcher } from '../fetchers/opensky.js';
+import newsFetcher from '../fetchers/news.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
@@ -34,6 +37,7 @@ interface AggregatedData {
   airQuality: AirQuality[];
   currentWeather: CurrentWeather | null;
   aircraft: Aircraft[];
+  news: NewsItem[];
 }
 
 class AggregatorService {
@@ -43,6 +47,7 @@ class AggregatorService {
   private airQuality: AirQuality[] = [];
   private currentWeather: CurrentWeather | null = null;
   private aircraft: Map<string, Aircraft> = new Map();
+  private news: NewsItem[] = [];
   private initialized = false;
   /**
    * Convert a millisecond interval into a cron expression.
@@ -176,6 +181,16 @@ class AggregatorService {
       await this.fetchCrime();
     }, false);
 
+    // Montgomery County, MD crime data - every 15 minutes
+    scheduler.schedule('moco-crime', cronCrime, async () => {
+      await this.fetchMoCoCrime();
+    }, false);
+
+    // Prince George's County, MD crime data - every 15 minutes
+    scheduler.schedule('pg-crime', cronCrime, async () => {
+      await this.fetchPGCrime();
+    }, false);
+
     const cronShotspotter = this.buildCronExpression(config.pollIntervals.shotspotter, '*/5 * * * *');
     scheduler.schedule('shotspotter', cronShotspotter, async () => {
       await this.fetchShotSpotter();
@@ -221,10 +236,21 @@ class AggregatorService {
       }
     }, false);
 
-    // Aircraft tracking (OpenSky) - every 30 seconds
-    const cronAircraft = this.buildCronExpression(config.pollIntervals.aircraft, '*/30 * * * * *');
+    // Aircraft tracking (OpenSky) - every 5 seconds for near real-time updates
+    // Only fetches when at least one client has aircraft enabled (saves API quota)
+    // At 5s interval + ~4h daily use = ~2,880 credits/day (under 4,000 limit)
+    const cronAircraft = this.buildCronExpression(config.pollIntervals.aircraft, '*/5 * * * * *');
     scheduler.schedule('aircraft', cronAircraft, async () => {
-      await this.fetchAircraft();
+      if (sse.anyClientWantsAircraft()) {
+        await this.fetchAircraft();
+      } else {
+        logger.debug('Skipping aircraft fetch - no clients want aircraft data');
+      }
+    }, false);
+
+    // News from RSS feeds - every 5 minutes
+    scheduler.schedule('news', '*/5 * * * *', async () => {
+      await this.fetchNews();
     }, false);
   }
 
@@ -238,12 +264,15 @@ class AggregatorService {
       this.fetchCameras(),
       this.fetchTrafficIncidents(),
       this.fetchCrime(),
+      this.fetchMoCoCrime(),
+      this.fetchPGCrime(),
       this.fetchShotSpotter(),
       this.fetchAlertDC(),
       this.fetchTransit(),
       this.fetchAirQuality(),
       this.fetchScanner(),
       this.fetchAircraft(),
+      this.fetchNews(),
     ];
 
     // Add Twitter fetcher if configured
@@ -348,6 +377,22 @@ class AggregatorService {
     }
   }
 
+  private async fetchMoCoCrime(): Promise<void> {
+    const result = await mocoCrimeFetcher.fetch();
+
+    if (result.success && result.data) {
+      await this.processIncidents(result.data);
+    }
+  }
+
+  private async fetchPGCrime(): Promise<void> {
+    const result = await pgCrimeFetcher.fetch();
+
+    if (result.success && result.data) {
+      await this.processIncidents(result.data);
+    }
+  }
+
   private async fetchShotSpotter(): Promise<void> {
     const result = await dcShotSpotterFetcher.fetch();
 
@@ -442,6 +487,26 @@ class AggregatorService {
     }
   }
 
+  private async fetchNews(): Promise<void> {
+    try {
+      const newsItems = await newsFetcher.fetchNews();
+      
+      // Update news list
+      this.news = newsItems;
+
+      // Broadcast to clients
+      sse.broadcast('news:update', {
+        news: newsItems,
+        timestamp: new Date().toISOString(),
+      });
+
+      logger.info(`News: Updated with ${newsItems.length} items`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`News fetch failed: ${errorMessage}`);
+    }
+  }
+
   private async processIncidents(newIncidents: Incident[]): Promise<void> {
     const processedIds = new Set<string>();
     let hasChanges = false;
@@ -495,19 +560,25 @@ class AggregatorService {
 
   /**
    * Clean up stale incidents that haven't been updated
-   * This handles sources like PulsePoint that don't provide complete listings
+   * This handles sources like PulsePoint that don't provide complete listings.
+   * Default expiration is 24 hours for all incident types.
    */
   private cleanupStaleIncidents(): void {
     const now = Date.now();
     let clearedCount = 0;
 
-    // Different expiration times by source
+    // Default 24 hours for all sources
+    // Crime data gets longer retention since it's historical records
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    
     const expirationMs: Record<string, number> = {
-      'pulsepoint': 4 * 60 * 60 * 1000,    // 4 hours - fire/EMS calls usually resolve quickly
-      'dc-crime': 24 * 60 * 60 * 1000,     // 24 hours - crime reports
-      'dc-shotspotter': 12 * 60 * 60 * 1000, // 12 hours - gunshot detections
-      'scanner': 2 * 60 * 60 * 1000,       // 2 hours - scanner activity
-      'default': 24 * 60 * 60 * 1000,      // 24 hours default
+      // Crime data - keep for 30 days to match API fetch window
+      'dc-crime': THIRTY_DAYS,
+      'moco-crime': THIRTY_DAYS,
+      'pg-crime': THIRTY_DAYS,
+      // Everything else - 24 hours (including pulsepoint, shotspotter, scanner, etc.)
+      'default': TWENTY_FOUR_HOURS,
     };
 
     for (const [id, incident] of this.incidents) {
@@ -601,6 +672,20 @@ class AggregatorService {
    */
   getAircraft(): Aircraft[] {
     return Array.from(this.aircraft.values());
+  }
+
+  /**
+   * Get news items
+   */
+  getNews(): NewsItem[] {
+    return this.news;
+  }
+
+  /**
+   * Find news items related to an incident
+   */
+  findRelatedNews(incidentTitle: string, incidentAddress?: string, incidentType?: string): NewsItem[] {
+    return newsFetcher.findRelatedNews(this.news, incidentTitle, incidentAddress, incidentType);
   }
 
   /**

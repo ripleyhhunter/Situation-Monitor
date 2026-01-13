@@ -151,3 +151,83 @@ export function getCardinalDirection(bearing: number): string {
   const index = Math.round(bearing / 45) % 8;
   return directions[index];
 }
+
+/**
+ * Result of a nearby item search with distance and direction info
+ */
+export interface NearbyItem<T> {
+  item: T;
+  distance: number; // km
+  bearing: number;  // degrees
+  direction: string; // cardinal direction (N, NE, etc.)
+}
+
+/**
+ * Find nearby items from a list based on distance from a reference point.
+ * Returns items sorted by distance with distance/bearing info attached.
+ * 
+ * @param refLat - Reference latitude
+ * @param refLng - Reference longitude
+ * @param items - Array of items to search
+ * @param getLocation - Function to extract lat/lng from an item
+ * @param options - Configuration options
+ * @returns Array of nearby items with distance info, sorted by distance
+ */
+export function findNearbyItems<T>(
+  refLat: number,
+  refLng: number,
+  items: T[],
+  getLocation: (item: T) => { lat: number; lng: number },
+  options: {
+    maxDistance?: number;  // km, default 0.8 (about 0.5 miles)
+    maxResults?: number;   // default 5
+    filter?: (item: T) => boolean; // additional filter
+  } = {}
+): NearbyItem<T>[] {
+  const { maxDistance = 0.8, maxResults = 5, filter } = options;
+
+  const results: NearbyItem<T>[] = [];
+
+  for (const item of items) {
+    // Apply additional filter if provided
+    if (filter && !filter(item)) {
+      continue;
+    }
+
+    const loc = getLocation(item);
+    const distance = haversineDistance(refLat, refLng, loc.lat, loc.lng);
+
+    if (distance <= maxDistance) {
+      const bearing = getBearing(refLat, refLng, loc.lat, loc.lng);
+      results.push({
+        item,
+        distance,
+        bearing,
+        direction: getCardinalDirection(bearing),
+      });
+    }
+  }
+
+  // Sort by distance
+  results.sort((a, b) => a.distance - b.distance);
+
+  // Limit results
+  return results.slice(0, maxResults);
+}
+
+/**
+ * Format distance for display in miles (US convention)
+ * Converts from km to miles and formats appropriately
+ */
+export function formatDistanceMiles(km: number): string {
+  const miles = km * 0.621371;
+  if (miles < 0.1) {
+    // Less than 0.1 miles, show in feet
+    const feet = Math.round(miles * 5280);
+    return `${feet} ft`;
+  }
+  if (miles < 1) {
+    return `${miles.toFixed(2)} mi`;
+  }
+  return `${miles.toFixed(1)} mi`;
+}

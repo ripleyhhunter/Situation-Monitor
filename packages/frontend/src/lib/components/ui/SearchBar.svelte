@@ -162,9 +162,9 @@
     {/if}
   </div>
 
-  <!-- Results dropdown -->
+  <!-- Results dropdown - z-[1000] to appear above Leaflet map (which uses z-index 400+) -->
   {#if showResults && results.length > 0}
-    <div class="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-64 overflow-y-auto">
+    <div class="absolute z-[1000] mt-1 w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-64 overflow-y-auto">
       {#each results as result}
         <button
           on:click={() => selectResult(result)}

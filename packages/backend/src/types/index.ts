@@ -19,7 +19,9 @@ export type DataSource =
   | 'airnow'
   | 'openmhz'
   | 'pulsepoint'
-  | 'scanner';
+  | 'scanner'
+  | 'moco-crime'      // Montgomery County, MD
+  | 'pg-crime';       // Prince George's County, MD
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 
@@ -158,6 +160,32 @@ export interface CurrentWeather {
   timestamp: string;
 }
 
+// News types
+export type NewsSource = 'wtop' | 'dcist' | 'nbc4' | 'wusa9' | 'fox5' | 'washpost';
+export type NewsPriority = 'breaking' | 'high' | 'normal';
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  description: string;
+  link: string;
+  source: NewsSource;
+  pubDate: string;
+  imageUrl?: string;
+  categories?: string[];
+  // For correlation with incidents
+  keywords?: string[];
+  // Priority level for display (breaking > high > normal)
+  priority?: NewsPriority;
+  // Incident category if applicable (crime, fire, traffic, weather, transit)
+  incidentType?: string;
+  location?: {
+    lat: number;
+    lng: number;
+    address?: string;
+  };
+}
+
 // SSE Event types
 export type SSEEventType =
   | 'incident:new'
@@ -170,6 +198,7 @@ export type SSEEventType =
   | 'transit:update'
   | 'aqi:update'
   | 'aircraft:update'
+  | 'news:update'
   | 'heartbeat'
   | 'connected';
 

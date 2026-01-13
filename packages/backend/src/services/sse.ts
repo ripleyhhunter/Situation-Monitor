@@ -2,10 +2,16 @@ import type { Response } from 'express';
 import type { SSEEvent, SSEEventType } from '../types/index.js';
 import logger from '../logger.js';
 
+// Client preferences for conditional fetching
+interface ClientPreferences {
+  wantsAircraft: boolean;
+}
+
 interface SSEClient {
   id: string;
   res: Response;
   connectedAt: Date;
+  preferences: ClientPreferences;
 }
 
 class SSEService {
@@ -45,6 +51,9 @@ class SSEService {
       id: clientId,
       res,
       connectedAt: new Date(),
+      preferences: {
+        wantsAircraft: false, // Default to false to save API quota
+      },
     });
 
     logger.info('SSE client connected', { clientId, totalClients: this.clients.size });
@@ -102,6 +111,45 @@ class SSEService {
 
   getClientIds(): string[] {
     return Array.from(this.clients.keys());
+  }
+
+  /**
+   * Update a client's preferences
+   */
+  updateClientPreferences(clientId: string, preferences: Partial<ClientPreferences>): boolean {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return false;
+    }
+
+    client.preferences = { ...client.preferences, ...preferences };
+    logger.debug('Client preferences updated', { clientId, preferences: client.preferences });
+    return true;
+  }
+
+  /**
+   * Check if any connected client wants aircraft data
+   */
+  anyClientWantsAircraft(): boolean {
+    for (const client of this.clients.values()) {
+      if (client.preferences.wantsAircraft) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get count of clients wanting aircraft data
+   */
+  getAircraftClientCount(): number {
+    let count = 0;
+    for (const client of this.clients.values()) {
+      if (client.preferences.wantsAircraft) {
+        count++;
+      }
+    }
+    return count;
   }
 
   shutdown(): void {

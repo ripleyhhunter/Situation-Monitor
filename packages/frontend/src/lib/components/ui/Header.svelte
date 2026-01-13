@@ -32,7 +32,7 @@
   }
 </script>
 
-<header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 z-50">
+<header class="relative bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 z-[1000]">
   <div class="flex items-center justify-between px-4 h-14">
     <!-- Left section -->
     <div class="flex items-center gap-4">

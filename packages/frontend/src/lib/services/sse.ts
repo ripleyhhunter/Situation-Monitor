@@ -1,9 +1,10 @@
 import { writable } from 'svelte/store';
-import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft } from '$types';
+import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem } from '$types';
 import { upsertIncident, clearIncident } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
 import { upsertWeatherAlert, removeWeatherAlert, setAirQuality, setCurrentWeather } from '$stores/weather';
 import { updateAircraft } from '$stores/aircraft';
+import { updateNews } from '$stores/news';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -13,12 +14,16 @@ export const connectionStatus = writable<ConnectionStatus>('disconnected');
 // Last event timestamp
 export const lastEventTime = writable<string | null>(null);
 
+// Client ID from server (for updating preferences)
+export const clientId = writable<string | null>(null);
+
 class SSEService {
   private eventSource: EventSource | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
+  private currentClientId: string | null = null;
 
   constructor() {
     // Auto-reconnect on page visibility change
@@ -38,6 +43,7 @@ class SSEService {
 
     connectionStatus.set('connecting');
 
+    // Default to wanting aircraft - filter store will update preference after connection
     const apiUrl = import.meta.env.PUBLIC_API_URL || '';
     this.eventSource = new EventSource(`${apiUrl}/api/events`);
 
@@ -56,8 +62,10 @@ class SSEService {
 
     // Handle different event types
     this.eventSource.addEventListener('connected', (event) => {
-      const data = JSON.parse(event.data) as SSEEvent;
+      const data = JSON.parse(event.data) as SSEEvent<{ clientId: string }>;
       console.log('SSE connected:', data);
+      this.currentClientId = data.data.clientId;
+      clientId.set(data.data.clientId);
       lastEventTime.set(data.timestamp);
     });
 
@@ -119,6 +127,12 @@ class SSEService {
       updateAircraft(data.data.aircraft);
       lastEventTime.set(data.timestamp);
     });
+
+    this.eventSource.addEventListener('news:update', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<{ news: NewsItem[]; timestamp: string }>;
+      updateNews(data.data.news);
+      lastEventTime.set(data.timestamp);
+    });
   }
 
   private handleDisconnect(): void {
@@ -155,12 +169,49 @@ class SSEService {
       this.eventSource.close();
       this.eventSource = null;
     }
+    this.currentClientId = null;
+    clientId.set(null);
     connectionStatus.set('disconnected');
     this.reconnectAttempts = this.maxReconnectAttempts; // Prevent auto-reconnect
   }
 
   isConnected(): boolean {
     return this.eventSource?.readyState === EventSource.OPEN;
+  }
+
+  /**
+   * Update server about aircraft preference change
+   * This helps the server save API quota when no clients want aircraft data
+   */
+  async updateAircraftPreference(wantsAircraft: boolean): Promise<void> {
+    if (!this.currentClientId) {
+      console.debug('Cannot update preference - no clientId yet');
+      return;
+    }
+
+    try {
+      const apiUrl = import.meta.env.PUBLIC_API_URL || '';
+      const response = await fetch(`${apiUrl}/api/events/preferences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: this.currentClientId,
+          wantsAircraft,
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn('Failed to update aircraft preference:', response.statusText);
+      } else {
+        console.debug('Aircraft preference updated:', wantsAircraft);
+      }
+    } catch (error) {
+      console.warn('Error updating aircraft preference:', error);
+    }
+  }
+
+  getClientId(): string | null {
+    return this.currentClientId;
   }
 }
 

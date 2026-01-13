@@ -1,13 +1,43 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import type { Incident } from '$types';
+  import type { Incident, Camera } from '$types';
   import { formatDateTime, formatRelativeTime } from '$utils/time';
   import { getSeverityColor, getSeverityLabel, getIncidentTypeName, getIncidentTypeColor } from '$utils/format';
-  import { formatCoordinates } from '$utils/geo';
+  import { formatCoordinates, findNearbyItems, formatDistanceMiles, type NearbyItem } from '$utils/geo';
+  import { cameraList, selectCamera } from '$stores/cameras';
+  import { news, getRelatedNews, formatNewsTime, getSourceName, getSourceColor } from '$stores/news';
 
   export let incident: Incident;
 
   const dispatch = createEventDispatcher();
+
+  // Configuration for nearby cameras
+  const NEARBY_CAMERA_CONFIG = {
+    maxDistance: 0.8,  // km (~0.5 miles)
+    maxResults: 5,
+  };
+
+  // State for collapsible sections
+  let camerasExpanded = true;
+  let newsExpanded = true;
+
+  // Find related news reactively
+  $: relatedNews = getRelatedNews($news, incident.title, incident.location.address, incident.type);
+
+  // Find nearby cameras reactively
+  $: nearbyCameras = findNearbyItems<Camera>(
+    incident.location.lat,
+    incident.location.lng,
+    $cameraList,
+    (camera) => camera.location,
+    {
+      maxDistance: NEARBY_CAMERA_CONFIG.maxDistance,
+      maxResults: NEARBY_CAMERA_CONFIG.maxResults,
+      // Exclude DC cameras which have no public feed
+      // Include cameras that have either imageUrl or streamUrl
+      filter: (camera) => camera.source !== 'dc' || Boolean(camera.imageUrl || camera.streamUrl),
+    }
+  );
 
   function close() {
     dispatch('close');
@@ -20,6 +50,22 @@
   function openInMaps() {
     const { lat, lng } = incident.location;
     window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+  }
+
+  function viewCamera(nearbyCamera: NearbyItem<Camera>) {
+    // Close this modal and open the camera modal
+    selectCamera(nearbyCamera.item);
+    close();
+  }
+
+  function getCameraSourceLabel(source: string): string {
+    const labels: Record<string, string> = {
+      mdchart: 'MD Traffic',
+      dc: 'DC DOT',
+      vdot: 'VA Traffic',
+      landmark: 'Webcam',
+    };
+    return labels[source] || source.toUpperCase();
   }
 </script>
 
@@ -145,6 +191,144 @@
           </dl>
         </div>
       {/if}
+
+      <!-- Nearby Cameras -->
+      {#if nearbyCameras.length > 0}
+        <div class="pt-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            on:click={() => (camerasExpanded = !camerasExpanded)}
+            class="flex items-center justify-between w-full text-left"
+          >
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 flex items-center gap-2">
+              <svg class="w-4 h-4 text-indigo-500" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+              </svg>
+              Nearby Cameras ({nearbyCameras.length})
+            </h3>
+            <svg
+              class="w-4 h-4 text-gray-400 transition-transform duration-200"
+              class:rotate-180={camerasExpanded}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {#if camerasExpanded}
+            <div class="mt-3 space-y-2">
+              {#each nearbyCameras as nearbyCamera (nearbyCamera.item.id)}
+                <button
+                  type="button"
+                  on:click={() => viewCamera(nearbyCamera)}
+                  class="w-full flex items-center gap-3 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left group"
+                >
+                  <!-- Camera icon or thumbnail preview -->
+                  <div class="w-10 h-10 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {#if nearbyCamera.item.imageUrl}
+                      <img
+                        src={nearbyCamera.item.imageUrl}
+                        alt=""
+                        class="w-full h-full object-cover"
+                        on:error={(e) => {
+                          const target = e.currentTarget as HTMLImageElement;
+                          target.style.display = 'none';
+                          const fallback = target.nextElementSibling as HTMLElement | null;
+                          fallback?.classList.remove('hidden');
+                        }}
+                      />
+                      <svg class="w-5 h-5 text-indigo-500 hidden" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+                      </svg>
+                    {:else}
+                      <svg class="w-5 h-5 text-indigo-500" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+                      </svg>
+                    {/if}
+                  </div>
+
+                  <!-- Camera info -->
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                      {nearbyCamera.item.name}
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                      {formatDistanceMiles(nearbyCamera.distance)} {nearbyCamera.direction} • {getCameraSourceLabel(nearbyCamera.item.source)}
+                    </p>
+                  </div>
+
+                  <!-- View arrow -->
+                  <svg class="w-4 h-4 text-gray-400 group-hover:text-indigo-500 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Related News -->
+      {#if relatedNews.length > 0}
+        <div class="pt-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            on:click={() => (newsExpanded = !newsExpanded)}
+            class="flex items-center justify-between w-full text-left"
+          >
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 flex items-center gap-2">
+              <span class="text-amber-500">📰</span>
+              Related News ({relatedNews.length})
+            </h3>
+            <svg
+              class="w-4 h-4 text-gray-400 transition-transform duration-200"
+              class:rotate-180={newsExpanded}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {#if newsExpanded}
+            <div class="mt-3 space-y-2">
+              {#each relatedNews as newsItem (newsItem.id)}
+                <a
+                  href={newsItem.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
+                >
+                  <div class="flex items-start gap-2">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                        {newsItem.title}
+                      </p>
+                      <div class="flex items-center gap-2 mt-1">
+                        <span 
+                          class="px-1.5 py-0.5 text-[10px] font-medium rounded text-white"
+                          style="background-color: {getSourceColor(newsItem.source)}"
+                        >
+                          {getSourceName(newsItem.source)}
+                        </span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">
+                          {formatNewsTime(newsItem.pubDate)}
+                        </span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-gray-400 group-hover:text-amber-500 transition-colors flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </div>
+                </a>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <!-- Footer -->
@@ -165,3 +349,13 @@
     </div>
   </div>
 </div>
+
+<style>
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>

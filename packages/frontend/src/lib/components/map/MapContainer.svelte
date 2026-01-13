@@ -7,8 +7,9 @@
   import { selectIncident, selectedIncident } from '$stores/incidents';
   import { filters } from '$stores/filters';
   import { activeWeatherAlerts } from '$stores/weather';
-  import { aircraftList, selectAircraft } from '$stores/aircraft';
+  import { aircraftList, selectAircraft, selectedAircraft } from '$stores/aircraft';
   import { getSeverityColor, getIncidentTypeColor } from '$utils/format';
+  import { getAgeBasedOpacity, isFreshIncident } from '$utils/time';
   import type { Incident, Camera, WeatherAlert, Aircraft } from '$types';
 
   let mapContainer: HTMLDivElement;
@@ -59,10 +60,17 @@
       // Initialize marker groups
       if (MarkerClusterGroup) {
         incidentMarkers = new MarkerClusterGroup({
-          maxClusterRadius: 50,
+          // Smaller radius = less aggressive clustering (markers must be closer to cluster)
+          maxClusterRadius: 30,
+          // Disable clustering entirely at zoom level 15+ (street level)
+          disableClusteringAtZoom: 15,
           spiderfyOnMaxZoom: true,
           showCoverageOnHover: false,
           zoomToBoundsOnClick: true,
+          // Don't animate cluster splits for better performance
+          animate: true,
+          // Spiderfy immediately when clicking a cluster at max zoom
+          spiderfyDistanceMultiplier: 1.5,
           iconCreateFunction: (cluster: any) => {
             const count = cluster.getChildCount();
             let size = 'small';
@@ -109,6 +117,14 @@
           east: bounds.getEast(),
           west: bounds.getWest(),
         });
+      });
+
+      // Stop aircraft tracking when user manually drags the map
+      map.on('dragstart', () => {
+        if (trackedAircraftId) {
+          console.log('User dragged map, stopping aircraft tracking');
+          selectAircraft(null);
+        }
       });
 
       // Add location control
@@ -226,6 +242,39 @@
     map.setView([$selectedIncident.location.lat, $selectedIncident.location.lng], 17);
   }
 
+  // Track selected aircraft ID for following
+  let trackedAircraftId: string | null = null;
+  let lastTrackedPosition: { lat: number; lng: number } | null = null;
+
+  // When aircraft is selected, start tracking it
+  $: if ($selectedAircraft) {
+    trackedAircraftId = $selectedAircraft.id;
+    // Initial center on selection
+    if (map) {
+      map.setView([$selectedAircraft.location.lat, $selectedAircraft.location.lng], 13);
+      lastTrackedPosition = { lat: $selectedAircraft.location.lat, lng: $selectedAircraft.location.lng };
+    }
+  } else {
+    trackedAircraftId = null;
+    lastTrackedPosition = null;
+  }
+
+  // Follow tracked aircraft when its position updates
+  $: if (map && trackedAircraftId && $aircraftList.length > 0) {
+    const trackedAircraft = $aircraftList.find(a => a.id === trackedAircraftId);
+    if (trackedAircraft) {
+      const newLat = trackedAircraft.location.lat;
+      const newLng = trackedAircraft.location.lng;
+      // Only pan if position has actually changed
+      if (!lastTrackedPosition || 
+          Math.abs(newLat - lastTrackedPosition.lat) > 0.0001 || 
+          Math.abs(newLng - lastTrackedPosition.lng) > 0.0001) {
+        map.panTo([newLat, newLng], { animate: true, duration: 0.5 });
+        lastTrackedPosition = { lat: newLat, lng: newLng };
+      }
+    }
+  }
+
   // Pan to search location when user searches
   $: if (map && L && $searchLocation) {
     panToSearchLocation($searchLocation);
@@ -274,17 +323,25 @@
 
     for (const incident of incidents) {
       const color = getSeverityColor(incident.severity);
+      const opacity = getAgeBasedOpacity(incident.timestamp);
+      const isFresh = isFreshIncident(incident.timestamp);
+      
+      // Fresh incidents get a larger size and pulse animation
+      const size = isFresh ? 28 : 24;
+      const pulseClass = isFresh ? 'pulse-fresh' : '';
+      
       const icon = L.divIcon({
         className: '',
         html: `
-          <div class="incident-marker severity-${incident.severity}" style="width: 24px; height: 24px; background-color: ${color};">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="white" style="margin: 5px;">
+          <div class="incident-marker severity-${incident.severity} ${pulseClass}" 
+               style="width: ${size}px; height: ${size}px; background-color: ${color}; opacity: ${opacity};">
+            <svg viewBox="0 0 24 24" width="${size - 10}" height="${size - 10}" fill="white" style="margin: ${(size - (size - 10)) / 2}px;">
               ${getIncidentIcon(incident.type)}
             </svg>
           </div>
         `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
       });
 
       const marker = L.marker([incident.location.lat, incident.location.lng], { icon });
@@ -455,22 +512,40 @@
     for (const plane of aircraft) {
       const color = getAircraftColor(plane);
       const isHelicopter = plane.category === 'helicopter';
-      const size = plane.category === 'commercial' ? 28 : 24;
-      const opacity = plane.onGround ? 0.5 : 1;
-      
+      // Larger sizes for better visibility
+      const size = plane.category === 'commercial' ? 40 : isHelicopter ? 38 : 34;
+      const opacity = plane.onGround ? 0.6 : 1;
+
       // Different SVG path for helicopters vs fixed-wing
+      // Helicopter: top-down view with rotor blades
       const svgPath = isHelicopter
-        ? '<path d="M12 2C11.2 2 10.5 2.5 10.2 3.2L9.5 5H7V7H9L8 9H6V11H7.5L6.5 13H5V15H6L5.2 17H3V19H5L4.5 20.5C4.3 21.1 4.7 21.7 5.3 21.9C5.9 22.1 6.5 21.7 6.7 21.1L7.5 19H16.5L17.3 21.1C17.5 21.7 18.1 22.1 18.7 21.9C19.3 21.7 19.7 21.1 19.5 20.5L19 19H21V17H18.8L18 15H19V13H17.5L16.5 11H18V9H16L15 7H17V5H14.5L13.8 3.2C13.5 2.5 12.8 2 12 2M12 5C12.6 5 13 5.4 13 6C13 6.6 12.6 7 12 7C11.4 7 11 6.6 11 6C11 5.4 11.4 5 12 5M9.5 9H14.5L15.5 11H8.5L9.5 9M8 13H16L17 15H7L8 13M7.5 17H16.5L16 18H8L7.5 17Z"/>'
+        ? '<g><ellipse cx="12" cy="12" rx="4" ry="3"/><rect x="11" y="6" width="2" height="12" rx="1"/><rect x="4" y="11" width="16" height="2" rx="1"/><circle cx="12" cy="12" r="1.5"/><path d="M10 18l-2 3h8l-2-3h-4z"/></g>'
         : '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>';
-      
+
+      // Stroke color for outline effect (darker version of fill)
+      const strokeColor = plane.isEmergency ? '#b91c1c' : (plane.onGround ? '#6b7280' : '#1f2937');
+      const bgColor = plane.onGround ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.9)';
+
       const icon = L.divIcon({
         className: '',
         html: `
-          <div class="aircraft-marker ${isHelicopter ? 'helicopter' : ''} ${plane.isEmergency ? 'emergency' : ''}" 
+          <div class="aircraft-marker ${isHelicopter ? 'helicopter' : ''} ${plane.isEmergency ? 'emergency' : ''}"
                style="width: ${size}px; height: ${size}px; opacity: ${opacity}; transform: rotate(${plane.heading}deg);">
-            <svg viewBox="0 0 24 24" width="${size - 6}" height="${size - 6}" fill="${color}" style="margin: 3px;">
-              ${svgPath}
-            </svg>
+            <div style="
+              width: ${size - 4}px; 
+              height: ${size - 4}px; 
+              background: ${bgColor}; 
+              border-radius: 50%; 
+              display: flex; 
+              align-items: center; 
+              justify-content: center;
+              border: 2px solid ${strokeColor};
+              box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            ">
+              <svg viewBox="0 0 24 24" width="${size - 14}" height="${size - 14}" fill="${color}" stroke="${strokeColor}" stroke-width="0.5">
+                ${svgPath}
+              </svg>
+            </div>
           </div>
         `,
         iconSize: [size, size],
@@ -569,6 +644,53 @@
   
   :global(.leaflet-pane.leaflet-overlay-pane) {
     z-index: 400;
+  }
+
+  /* Incident marker styles */
+  :global(.incident-marker) {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    transition: opacity 0.3s ease, transform 0.2s ease;
+  }
+
+  :global(.incident-marker:hover) {
+    transform: scale(1.15);
+    z-index: 1000 !important;
+  }
+
+  /* Fresh incident pulse animation */
+  :global(.incident-marker.pulse-fresh) {
+    animation: pulse-fresh 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-fresh {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(255, 255, 255, 0), 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  /* Camera marker styles */
+  :global(.camera-marker),
+  :global(.dc-camera-marker),
+  :global(.landmark-marker) {
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease;
+  }
+
+  :global(.camera-marker:hover),
+  :global(.dc-camera-marker:hover),
+  :global(.landmark-marker:hover) {
+    transform: scale(1.15);
   }
 
   /* Aircraft marker styles */

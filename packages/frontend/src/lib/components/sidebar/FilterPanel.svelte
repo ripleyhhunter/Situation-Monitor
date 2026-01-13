@@ -2,6 +2,7 @@
   import {
     filters,
     toggleIncidentType,
+    toggleJurisdiction,
     setMinSeverity,
     toggleCameras,
     toggleLocationOnlyCameras,
@@ -15,7 +16,7 @@
   import { incidentCounts } from '$stores/incidents';
   import { aircraftCounts } from '$stores/aircraft';
   import { getIncidentTypeName, getIncidentTypeColor, getSeverityColor, getSeverityLabel } from '$utils/format';
-  import type { IncidentType, FilterState } from '$types';
+  import type { IncidentType, FilterState, Jurisdiction } from '$types';
 
   const incidentTypes: IncidentType[] = ['traffic', 'crime', 'fire', 'transit', 'gunshot', 'hazard'];
   const timeRanges: { value: FilterState['timeRange']; label: string }[] = [
@@ -23,6 +24,13 @@
     { value: '1h', label: 'Last Hour' },
     { value: '6h', label: 'Last 6 Hours' },
     { value: '24h', label: 'Last 24 Hours' },
+  ];
+
+  // Jurisdiction options with display info
+  const jurisdictions: { value: Jurisdiction; label: string; abbrev: string; color: string }[] = [
+    { value: 'dc', label: 'Washington, DC', abbrev: 'DC', color: '#e53e3e' },
+    { value: 'montgomery', label: 'Montgomery County, MD', abbrev: 'MoCo', color: '#3182ce' },
+    { value: 'pg', label: "Prince George's County, MD", abbrev: 'PG', color: '#38a169' },
   ];
 </script>
 
@@ -52,6 +60,35 @@
         </label>
       {/each}
     </div>
+  </div>
+
+  <!-- Jurisdictions -->
+  <div>
+    <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Jurisdictions</h3>
+    <div class="space-y-2">
+      {#each jurisdictions as jurisdiction}
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={$filters.jurisdictions.has(jurisdiction.value)}
+            onchange={() => toggleJurisdiction(jurisdiction.value)}
+            class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+          />
+          <span
+            class="px-1.5 py-0.5 text-xs font-medium rounded"
+            style="background-color: {jurisdiction.color}; color: white"
+          >
+            {jurisdiction.abbrev}
+          </span>
+          <span class="text-sm text-gray-700 dark:text-gray-300 flex-1">
+            {jurisdiction.label}
+          </span>
+        </label>
+      {/each}
+    </div>
+    <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+      Filter crime data by region
+    </p>
   </div>
 
   <!-- Severity Filter -->
@@ -221,7 +258,7 @@
         
         <div>
           <p class="font-semibold text-gray-700 dark:text-gray-300 mb-1">🔫 Crime & Gunshots</p>
-          <p>DC Open Data: last 30 days of crime reports + ShotSpotter gunshot detection.</p>
+          <p>DC Open Data + Montgomery County + Prince George's County: last 30 days of crime reports. DC also includes ShotSpotter gunshot detection.</p>
         </div>
         
         <div>

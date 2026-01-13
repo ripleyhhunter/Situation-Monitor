@@ -1,19 +1,39 @@
 import { writable, derived } from 'svelte/store';
-import type { FilterState, IncidentType, Incident } from '$types';
+import type { FilterState, IncidentType, Incident, Jurisdiction, DataSource } from '$types';
 import { activeIncidents } from './incidents';
 
 // Default filter state
 const defaultFilters: FilterState = {
   incidentTypes: new Set(['traffic', 'crime', 'fire', 'weather', 'transit', 'gunshot', 'hazard']),
+  jurisdictions: new Set(['dc', 'montgomery', 'pg']), // All jurisdictions enabled by default
   minSeverity: 1,
   showCameras: true,
   showLocationOnlyCameras: false, // Hide DC cameras (no image/stream) by default
   showWeather: true,
   showCrimeHeatmap: false, // Toggle between markers and heatmap for crime data
-  showAircraft: true, // Show aircraft on the map
+  showAircraft: false, // Aircraft OFF by default to save API quota
   hideGroundAircraft: true, // Hide aircraft on the ground by default
   timeRange: '24h',
 };
+
+// Map data sources to jurisdictions
+function getJurisdictionForSource(source: DataSource): Jurisdiction | null {
+  switch (source) {
+    case 'dc-crime':
+    case 'dc-shotspotter':
+    case 'dc-traffic':
+    case 'alertdc':
+    case 'pulsepoint':
+      return 'dc';
+    case 'moco-crime':
+      return 'montgomery';
+    case 'pg-crime':
+      return 'pg';
+    default:
+      // For sources like mdchart, nws, wmata - don't filter by jurisdiction
+      return null;
+  }
+}
 
 // Filters store
 export const filters = writable<FilterState>(defaultFilters);
@@ -28,6 +48,19 @@ export function toggleIncidentType(type: IncidentType): void {
       newTypes.add(type);
     }
     return { ...f, incidentTypes: newTypes };
+  });
+}
+
+// Toggle jurisdiction filter
+export function toggleJurisdiction(jurisdiction: Jurisdiction): void {
+  filters.update((f) => {
+    const newJurisdictions = new Set(f.jurisdictions);
+    if (newJurisdictions.has(jurisdiction)) {
+      newJurisdictions.delete(jurisdiction);
+    } else {
+      newJurisdictions.add(jurisdiction);
+    }
+    return { ...f, jurisdictions: newJurisdictions };
   });
 }
 
@@ -58,7 +91,17 @@ export function toggleCrimeHeatmap(): void {
 
 // Toggle aircraft visibility
 export function toggleAircraft(): void {
-  filters.update((f) => ({ ...f, showAircraft: !f.showAircraft }));
+  filters.update((f) => {
+    const newShowAircraft = !f.showAircraft;
+    
+    // Notify server about preference change (saves API quota when aircraft disabled)
+    // Import dynamically to avoid circular dependency
+    import('$services/sse').then(({ sseService }) => {
+      sseService.updateAircraftPreference(newShowAircraft);
+    });
+    
+    return { ...f, showAircraft: newShowAircraft };
+  });
 }
 
 // Toggle ground aircraft visibility
@@ -99,6 +142,12 @@ export const filteredIncidents = derived(
     return $incidents.filter((incident: Incident) => {
       // Check incident type
       if (!$filters.incidentTypes.has(incident.type)) {
+        return false;
+      }
+
+      // Check jurisdiction (only for sources that have a jurisdiction)
+      const jurisdiction = getJurisdictionForSource(incident.source);
+      if (jurisdiction !== null && !$filters.jurisdictions.has(jurisdiction)) {
         return false;
       }
 

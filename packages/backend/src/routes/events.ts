@@ -5,11 +5,18 @@ import logger from '../logger.js';
 
 const router = Router();
 
+// SSE connection endpoint
 router.get('/', (req, res) => {
   logger.debug('New SSE connection request');
 
+  // Check if client is requesting aircraft data (default true for backwards compatibility)
+  const wantsAircraft = req.query.aircraft !== 'false';
+
   // Add this client to SSE service
   const clientId = sse.addClient(res);
+
+  // Update initial preferences based on query params
+  sse.updateClientPreferences(clientId, { wantsAircraft });
 
   // Send initial data dump to catch up the client
   const data = aggregator.getAll();
@@ -60,7 +67,37 @@ router.get('/', (req, res) => {
     cameras: data.cameras.length,
     weatherAlerts: data.weather.length,
     hasCurrentWeather: !!data.currentWeather,
-    aircraft: data.aircraft?.length || 0
+    aircraft: data.aircraft?.length || 0,
+    wantsAircraft
+  });
+});
+
+// Update client preferences endpoint
+router.post('/preferences', (req, res) => {
+  const { clientId, wantsAircraft } = req.body;
+
+  if (!clientId) {
+    return res.status(400).json({ error: 'clientId is required' });
+  }
+
+  const success = sse.updateClientPreferences(clientId, {
+    wantsAircraft: wantsAircraft ?? true,
+  });
+
+  if (!success) {
+    return res.status(404).json({ error: 'Client not found' });
+  }
+
+  logger.debug('Client preferences updated via API', { 
+    clientId, 
+    wantsAircraft,
+    aircraftClients: sse.getAircraftClientCount(),
+    totalClients: sse.getClientCount()
+  });
+
+  return res.json({ 
+    success: true, 
+    aircraftFetchingActive: sse.anyClientWantsAircraft() 
   });
 });
 

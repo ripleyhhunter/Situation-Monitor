@@ -17,6 +17,7 @@ import incidentsRouter from './routes/incidents.js';
 import camerasRouter from './routes/cameras.js';
 import weatherRouter from './routes/weather.js';
 import aqiRouter from './routes/aqi.js';
+import newsRouter from './routes/news.js';
 
 const app = express();
 
@@ -33,11 +34,12 @@ app.use('/api/health', healthRouter);
 // SSE endpoint (lighter rate limiting)
 app.use('/api/events', sseRateLimiter, eventsRouter);
 
-// API routes (standard rate limiting)
+// API routes (rate limiting with timeout fallback)
 app.use('/api/incidents', apiRateLimiter, incidentsRouter);
 app.use('/api/cameras', apiRateLimiter, camerasRouter);
 app.use('/api/weather', apiRateLimiter, weatherRouter);
 app.use('/api/aqi', apiRateLimiter, aqiRouter);
+app.use('/api/news', apiRateLimiter, newsRouter);
 
 // 404 handler
 app.use(notFoundHandler);
