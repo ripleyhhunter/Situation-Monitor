@@ -235,6 +235,7 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
       },
       timestamp,
       updatedAt: now,
+      regionId: 'dc',
       source: 'dc-traffic',
       title,
       description: this.buildDescription(attrs, endTime ?? undefined),

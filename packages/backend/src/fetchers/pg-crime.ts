@@ -109,6 +109,7 @@ export class PGCrimeFetcher extends BaseFetcher<Incident> {
       },
       timestamp: incidentDate,
       updatedAt: now,
+      regionId: 'dc',
       source: 'pg-crime',
       title: this.formatOffense(offense),
       description: this.buildDescription(record),

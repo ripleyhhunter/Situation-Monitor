@@ -1,23 +1,15 @@
-import type { Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem } from '../types/index.js';
-import { nwsWeatherFetcher } from '../fetchers/nws-weather.js';
-import { currentWeatherFetcher } from '../fetchers/current-weather.js';
-import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
-import { dcCamerasFetcher } from '../fetchers/dc-cameras.js';
-import { landmarkWebcamsFetcher } from '../fetchers/landmark-webcams.js';
-import { mdchartIncidentsFetcher } from '../fetchers/mdchart-incidents.js';
-import { dcCrimeFetcher } from '../fetchers/dc-crime.js';
-import { mocoCrimeFetcher } from '../fetchers/moco-crime.js';
-import { pgCrimeFetcher } from '../fetchers/pg-crime.js';
-import { dcShotSpotterFetcher } from '../fetchers/dc-shotspotter.js';
-import { dcTrafficFetcher } from '../fetchers/dc-traffic.js';
-import { alertDCFetcher } from '../fetchers/alertdc.js';
-import { wmataFetcher } from '../fetchers/wmata.js';
-import { airnowFetcher } from '../fetchers/airnow.js';
-import { openMHzFetcher } from '../fetchers/openmhz.js';
-import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
-import { pulsePointFetcher } from '../fetchers/pulsepoint.js';
-import { openskyFetcher } from '../fetchers/opensky.js';
-import newsFetcher from '../fetchers/news.js';
+import type {
+  Incident,
+  Camera,
+  WeatherAlert,
+  AirQuality,
+  CurrentWeather,
+  Aircraft,
+  NewsItem,
+  RegionId,
+} from '../types/index.js';
+import type { RegionPack } from '../regions/types.js';
+import { allRegions } from '../regions/index.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
@@ -26,674 +18,611 @@ import { geocache } from './geocache.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
-// Redis key for persisted incidents
-const INCIDENTS_CACHE_KEY = 'incidents:active';
 const INCIDENTS_CACHE_TTL = 24 * 60 * 60; // 24 hours
+
+function cacheKeyForRegion(regionId: RegionId): string {
+  return `incidents:active:${regionId}`;
+}
+
+interface RegionState {
+  incidents: Map<string, Incident>;
+  cameras: Map<string, Camera>;
+  weatherAlerts: Map<string, WeatherAlert>;
+  airQuality: AirQuality[];
+  currentWeather: CurrentWeather | null;
+  aircraft: Map<string, Aircraft>;
+  news: NewsItem[];
+}
 
 interface AggregatedData {
   incidents: Incident[];
   cameras: Camera[];
   weather: WeatherAlert[];
   airQuality: AirQuality[];
-  currentWeather: CurrentWeather | null;
+  /** Map of regionId → current weather. Frontend picks the entry for its selected region. */
+  currentWeather: Record<RegionId, CurrentWeather | null>;
   aircraft: Aircraft[];
   news: NewsItem[];
 }
 
 class AggregatorService {
-  private incidents: Map<string, Incident> = new Map();
-  private cameras: Map<string, Camera> = new Map();
-  private weatherAlerts: Map<string, WeatherAlert> = new Map();
-  private airQuality: AirQuality[] = [];
-  private currentWeather: CurrentWeather | null = null;
-  private aircraft: Map<string, Aircraft> = new Map();
-  private news: NewsItem[] = [];
+  private state = new Map<RegionId, RegionState>();
   private initialized = false;
-  /**
-   * Convert a millisecond interval into a cron expression.
-   * Supports second-level scheduling when interval < 60s using 6-field cron.
-   * Falls back to provided defaultExpression if intervalMs is invalid.
-   */
-  private buildCronExpression(intervalMs: number, defaultExpression: string): string {
-    if (!intervalMs || intervalMs <= 0 || Number.isNaN(intervalMs)) {
-      return defaultExpression;
-    }
 
-    // Sub-minute: use seconds field (node-cron supports 6-field format)
+  constructor() {
+    for (const region of allRegions) {
+      this.state.set(region.id, this.emptyState());
+    }
+  }
+
+  private emptyState(): RegionState {
+    return {
+      incidents: new Map(),
+      cameras: new Map(),
+      weatherAlerts: new Map(),
+      airQuality: [],
+      currentWeather: null,
+      aircraft: new Map(),
+      news: [],
+    };
+  }
+
+  private getState(regionId: RegionId): RegionState {
+    let s = this.state.get(regionId);
+    if (!s) {
+      s = this.emptyState();
+      this.state.set(regionId, s);
+    }
+    return s;
+  }
+
+  private buildCronExpression(intervalMs: number, defaultExpression: string): string {
+    if (!intervalMs || intervalMs <= 0 || Number.isNaN(intervalMs)) return defaultExpression;
     if (intervalMs < 60000) {
       const seconds = Math.max(1, Math.round(intervalMs / 1000));
       return `*/${seconds} * * * * *`;
     }
-
-    // Minutes
     const minutes = intervalMs / 60000;
     if (minutes < 60) {
       const mins = Math.max(1, Math.round(minutes));
       return `*/${mins} * * * *`;
     }
-
-    // Hours or more
     const hours = Math.max(1, Math.round(minutes / 60));
     return `0 */${hours} * * *`;
   }
 
-  /**
-   * Initialize the aggregator and start scheduled fetching
-   */
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
     logger.info('Initializing aggregator service');
 
-    // Step 1: Initialize geocache (loads cached geocoded addresses from Redis)
     await geocache.initialize();
     const geoStats = geocache.getStats();
     logger.info(`Geocache initialized with ${geoStats.memorySize} cached addresses`);
 
-    // Step 2: Load cached incidents from Redis (instant data for clients)
-    await this.loadCachedIncidents();
+    for (const region of allRegions) {
+      await this.loadCachedIncidents(region.id);
+    }
 
-    // Step 3: Schedule all fetchers
     this.scheduleAllFetchers();
 
-    // Step 4: Start fetching fresh data (non-blocking for faster startup)
     this.initialized = true;
     logger.info('Aggregator service initialized - fetching fresh data in background');
-    
-    // Fetch fresh data without blocking
+
     this.fetchAll().catch(err => {
       logger.warn('Background fetch error:', { error: err });
     });
   }
 
-  /**
-   * Load cached incidents from Redis for instant startup
-   */
-  private async loadCachedIncidents(): Promise<void> {
+  private async loadCachedIncidents(regionId: RegionId): Promise<void> {
     try {
-      const cached = await cache.get<Incident[]>(INCIDENTS_CACHE_KEY);
-      
+      const cached = await cache.get<Incident[]>(cacheKeyForRegion(regionId));
+
       if (cached && Array.isArray(cached) && cached.length > 0) {
         const now = Date.now();
         const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
-        
+        const state = this.getState(regionId);
+
         let loadedCount = 0;
         for (const incident of cached) {
-          // Only load incidents from the last 24 hours
           const incidentTime = new Date(incident.timestamp).getTime();
           if (incidentTime >= twentyFourHoursAgo && incident.status === 'active') {
-            this.incidents.set(incident.id, incident);
+            // Defensive: ensure regionId is set on legacy cache entries
+            if (!incident.regionId) incident.regionId = regionId;
+            state.incidents.set(incident.id, incident);
             database.upsertIncident(incident);
             loadedCount++;
           }
         }
-        
-        logger.info(`Loaded ${loadedCount} cached incidents from Redis (${cached.length} total in cache)`);
+
+        logger.info(`Loaded ${loadedCount} cached incidents from Redis for ${regionId} (${cached.length} total in cache)`);
       } else {
-        logger.debug('No cached incidents found in Redis');
+        logger.debug(`No cached incidents in Redis for ${regionId}`);
       }
     } catch (error) {
-      logger.warn('Failed to load cached incidents:', { error });
+      logger.warn(`Failed to load cached incidents for ${regionId}:`, { error });
     }
   }
 
-  /**
-   * Persist current incidents to Redis
-   */
-  private async persistIncidents(): Promise<void> {
+  private async persistIncidents(regionId: RegionId): Promise<void> {
     try {
-      const incidents = Array.from(this.incidents.values());
-      await cache.set(INCIDENTS_CACHE_KEY, incidents, INCIDENTS_CACHE_TTL);
+      const incidents = Array.from(this.getState(regionId).incidents.values());
+      await cache.set(cacheKeyForRegion(regionId), incidents, INCIDENTS_CACHE_TTL);
     } catch (error) {
-      logger.warn('Failed to persist incidents to Redis:', { error });
+      logger.warn(`Failed to persist incidents to Redis for ${regionId}:`, { error });
     }
   }
 
   private scheduleAllFetchers(): void {
-    // Periodic cleanup of stale incidents (every 10 minutes)
+    // One global cleanup task — sweeps all regions.
     scheduler.schedule('incident-cleanup', '*/10 * * * *', async () => {
       this.cleanupStaleIncidents();
     }, false);
 
-    // Weather alerts (NWS)
+    for (const region of allRegions) {
+      this.scheduleRegionFetchers(region);
+    }
+  }
+
+  private scheduleRegionFetchers(region: RegionPack): void {
+    const tag = region.id;
+
     const cronWeather = this.buildCronExpression(config.pollIntervals.weather, '*/2 * * * *');
-    scheduler.schedule('weather', cronWeather, async () => {
-      await this.fetchWeather();
-    }, false);
+    scheduler.schedule(`weather-${tag}`, cronWeather, () => this.fetchWeather(region), false);
 
-    // Current weather conditions (Open-Meteo) - every 5 minutes
-    scheduler.schedule('current-weather', '*/5 * * * *', async () => {
-      await this.fetchCurrentWeather();
-    }, false);
+    scheduler.schedule(`current-weather-${tag}`, '*/5 * * * *', () => this.fetchCurrentWeather(region), false);
 
-    const cronCameras = this.buildCronExpression(config.pollIntervals.trafficCameras, '*/5 * * * *');
-    scheduler.schedule('cameras', cronCameras, async () => {
-      await this.fetchCameras();
-    }, false);
+    if (region.cameraFetchers.length > 0) {
+      const cronCameras = this.buildCronExpression(config.pollIntervals.trafficCameras, '*/5 * * * *');
+      scheduler.schedule(`cameras-${tag}`, cronCameras, () => this.fetchCameras(region), false);
+    }
 
-    const cronTraffic = this.buildCronExpression(config.pollIntervals.trafficIncidents, '* * * * *');
-    scheduler.schedule('traffic-incidents', cronTraffic, async () => {
-      await this.fetchTrafficIncidents();
-    }, false);
+    if (region.trafficIncidentFetchers.length > 0) {
+      const cronTraffic = this.buildCronExpression(config.pollIntervals.trafficIncidents, '* * * * *');
+      scheduler.schedule(`traffic-incidents-${tag}`, cronTraffic, () => this.fetchTrafficIncidents(region), false);
+    }
 
-    const cronCrime = this.buildCronExpression(config.pollIntervals.crime, '*/15 * * * *');
-    scheduler.schedule('crime', cronCrime, async () => {
-      await this.fetchCrime();
-    }, false);
+    if (region.crimeFetchers.length > 0) {
+      const cronCrime = this.buildCronExpression(config.pollIntervals.crime, '*/15 * * * *');
+      scheduler.schedule(`crime-${tag}`, cronCrime, () => this.fetchCrime(region), false);
+    }
 
-    // Montgomery County, MD crime data - every 15 minutes
-    scheduler.schedule('moco-crime', cronCrime, async () => {
-      await this.fetchMoCoCrime();
-    }, false);
+    if (region.shotspotterFetchers.length > 0) {
+      const cronShotspotter = this.buildCronExpression(config.pollIntervals.shotspotter, '*/5 * * * *');
+      scheduler.schedule(`shotspotter-${tag}`, cronShotspotter, () => this.fetchShotSpotter(region), false);
+    }
 
-    // Prince George's County, MD crime data - every 15 minutes
-    scheduler.schedule('pg-crime', cronCrime, async () => {
-      await this.fetchPGCrime();
-    }, false);
+    if (region.emergencyAlertFetchers.length > 0) {
+      const cronAlerts = this.buildCronExpression(config.pollIntervals.alertdc, '*/2 * * * *');
+      scheduler.schedule(`emergency-alerts-${tag}`, cronAlerts, () => this.fetchEmergencyAlerts(region), false);
+    }
 
-    const cronShotspotter = this.buildCronExpression(config.pollIntervals.shotspotter, '*/5 * * * *');
-    scheduler.schedule('shotspotter', cronShotspotter, async () => {
-      await this.fetchShotSpotter();
-    }, false);
-
-    const cronAlertdc = this.buildCronExpression(config.pollIntervals.alertdc, '*/2 * * * *');
-    scheduler.schedule('alertdc', cronAlertdc, async () => {
-      await this.fetchAlertDC();
-    }, false);
-
-    if (config.wmataApiKey) {
-      const cronWmata = this.buildCronExpression(config.pollIntervals.wmata, '* * * * *');
-      scheduler.schedule('wmata', cronWmata, async () => {
-        await this.fetchTransit();
-      }, false);
+    if (region.transitFetcher && config.wmataApiKey) {
+      const cronTransit = this.buildCronExpression(config.pollIntervals.wmata, '* * * * *');
+      scheduler.schedule(`transit-${tag}`, cronTransit, () => this.fetchTransit(region), false);
     }
 
     const cronAqi = this.buildCronExpression(config.pollIntervals.airQuality, '*/30 * * * *');
-    scheduler.schedule('airquality', cronAqi, async () => {
-      await this.fetchAirQuality();
-    }, false);
+    scheduler.schedule(`airquality-${tag}`, cronAqi, () => this.fetchAirQuality(region), false);
 
-    // Scanner feeds (OpenMHz) - every 5 minutes
-    const cronScanner = this.buildCronExpression(config.pollIntervals.scanner, '*/5 * * * *');
-    scheduler.schedule('scanner', cronScanner, async () => {
-      await this.fetchScanner();
-    }, false);
+    if (region.scannerFetcher) {
+      const cronScanner = this.buildCronExpression(config.pollIntervals.scanner, '*/5 * * * *');
+      scheduler.schedule(`scanner-${tag}`, cronScanner, () => this.fetchScanner(region), false);
+    }
 
-    // DC Fire/EMS Twitter feed - every 2 minutes (if configured)
-    if (process.env.TWITTER_BEARER_TOKEN) {
-      scheduler.schedule('dcfireems-twitter', '*/2 * * * *', async () => {
-        await this.fetchDCFireEMSTwitter();
+    if (region.twitterFetcher && process.env.TWITTER_BEARER_TOKEN) {
+      scheduler.schedule(`twitter-${tag}`, '*/2 * * * *', () => this.fetchTwitter(region), false);
+    }
+
+    if (region.pulsePointFetcher) {
+      scheduler.schedule(`pulsepoint-${tag}`, '*/2 * * * *', async () => {
+        if (sse.getClientCount() > 0) {
+          await this.fetchPulsePoint(region);
+        } else {
+          logger.debug(`Skipping PulsePoint (${tag}) - no clients connected`);
+        }
       }, false);
     }
 
-    // PulsePoint Fire/EMS incidents - every 2 minutes (only when clients connected)
-    scheduler.schedule('pulsepoint', '*/2 * * * *', async () => {
-      // Only run Puppeteer-based fetcher when frontend clients are actually connected
-      if (sse.getClientCount() > 0) {
-        await this.fetchPulsePoint();
-      } else {
-        logger.debug('Skipping PulsePoint fetch - no clients connected');
-      }
-    }, false);
-
-    // Aircraft tracking (OpenSky) - every 5 seconds for near real-time updates
-    // Only fetches when at least one client has aircraft enabled (saves API quota)
-    // At 5s interval + ~4h daily use = ~2,880 credits/day (under 4,000 limit)
     const cronAircraft = this.buildCronExpression(config.pollIntervals.aircraft, '*/5 * * * * *');
-    scheduler.schedule('aircraft', cronAircraft, async () => {
+    scheduler.schedule(`aircraft-${tag}`, cronAircraft, async () => {
       if (sse.anyClientWantsAircraft()) {
-        await this.fetchAircraft();
+        await this.fetchAircraft(region);
       } else {
-        logger.debug('Skipping aircraft fetch - no clients want aircraft data');
+        logger.debug(`Skipping aircraft (${tag}) - no clients want aircraft data`);
       }
     }, false);
 
-    // News from RSS feeds - every 5 minutes
-    scheduler.schedule('news', '*/5 * * * *', async () => {
-      await this.fetchNews();
-    }, false);
+    scheduler.schedule(`news-${tag}`, '*/5 * * * *', () => this.fetchNews(region), false);
   }
 
-  /**
-   * Fetch all data sources
-   */
   async fetchAll(): Promise<void> {
-    const fetchers = [
-      this.fetchWeather(),
-      this.fetchCurrentWeather(),
-      this.fetchCameras(),
-      this.fetchTrafficIncidents(),
-      this.fetchCrime(),
-      this.fetchMoCoCrime(),
-      this.fetchPGCrime(),
-      this.fetchShotSpotter(),
-      this.fetchAlertDC(),
-      this.fetchTransit(),
-      this.fetchAirQuality(),
-      this.fetchScanner(),
-      this.fetchAircraft(),
-      this.fetchNews(),
-    ];
-
-    // Add Twitter fetcher if configured
-    if (process.env.TWITTER_BEARER_TOKEN) {
-      fetchers.push(this.fetchDCFireEMSTwitter());
+    const tasks: Promise<void>[] = [];
+    for (const region of allRegions) {
+      tasks.push(this.fetchWeather(region));
+      tasks.push(this.fetchCurrentWeather(region));
+      tasks.push(this.fetchAirQuality(region));
+      tasks.push(this.fetchNews(region));
+      if (region.cameraFetchers.length > 0) tasks.push(this.fetchCameras(region));
+      if (region.trafficIncidentFetchers.length > 0) tasks.push(this.fetchTrafficIncidents(region));
+      if (region.crimeFetchers.length > 0) tasks.push(this.fetchCrime(region));
+      if (region.shotspotterFetchers.length > 0) tasks.push(this.fetchShotSpotter(region));
+      if (region.emergencyAlertFetchers.length > 0) tasks.push(this.fetchEmergencyAlerts(region));
+      if (region.transitFetcher && config.wmataApiKey) tasks.push(this.fetchTransit(region));
+      if (region.scannerFetcher) tasks.push(this.fetchScanner(region));
+      if (region.twitterFetcher && process.env.TWITTER_BEARER_TOKEN) tasks.push(this.fetchTwitter(region));
+      if (region.pulsePointFetcher && sse.getClientCount() > 0) tasks.push(this.fetchPulsePoint(region));
+      // Skip aircraft on startup — it's gated on client preference at cron time.
     }
-
-    // Only fetch PulsePoint if clients are connected (avoids running Puppeteer at startup)
-    if (sse.getClientCount() > 0) {
-      fetchers.push(this.fetchPulsePoint());
-    }
-
-    await Promise.all(fetchers);
+    await Promise.all(tasks);
   }
 
-  private async fetchWeather(): Promise<void> {
-    const result = await nwsWeatherFetcher.fetch();
+  // ---------- per-region fetch methods ----------
 
-    if (result.success && result.data) {
-      const previousIds = new Set(this.weatherAlerts.keys());
+  private async fetchWeather(region: RegionPack): Promise<void> {
+    const result = await region.weatherAlertFetcher.fetch();
+    if (!(result.success && result.data)) return;
 
-      for (const alert of result.data) {
-        const existing = this.weatherAlerts.get(alert.id);
+    const state = this.getState(region.id);
+    const previousIds = new Set(state.weatherAlerts.keys());
 
-        if (!existing) {
-          // New alert
-          this.weatherAlerts.set(alert.id, alert);
-          database.upsertWeatherAlert(alert);
-          sse.broadcast('weather:alert', alert);
-        } else if (JSON.stringify(existing) !== JSON.stringify(alert)) {
-          // Updated alert
-          this.weatherAlerts.set(alert.id, alert);
-          database.upsertWeatherAlert(alert);
-          sse.broadcast('weather:alert', alert);
-        }
-
-        previousIds.delete(alert.id);
+    for (const alert of result.data) {
+      const existing = state.weatherAlerts.get(alert.id);
+      if (!existing) {
+        state.weatherAlerts.set(alert.id, alert);
+        database.upsertWeatherAlert(alert);
+        sse.broadcast('weather:alert', alert);
+      } else if (JSON.stringify(existing) !== JSON.stringify(alert)) {
+        state.weatherAlerts.set(alert.id, alert);
+        database.upsertWeatherAlert(alert);
+        sse.broadcast('weather:alert', alert);
       }
+      previousIds.delete(alert.id);
+    }
 
-      // Cleared alerts
-      for (const id of previousIds) {
-        this.weatherAlerts.delete(id);
-        sse.broadcast('weather:clear', { id });
-      }
+    for (const id of previousIds) {
+      state.weatherAlerts.delete(id);
+      sse.broadcast('weather:clear', { id, regionId: region.id });
     }
   }
 
-  private async fetchCameras(): Promise<void> {
-    // Fetch from Maryland CHART, DC, and landmark webcams
-    const [mdResult, dcResult, landmarkResult] = await Promise.all([
-      mdchartCamerasFetcher.fetch(),
-      dcCamerasFetcher.fetch(),
-      landmarkWebcamsFetcher.fetch(),
-    ]);
-
+  private async fetchCameras(region: RegionPack): Promise<void> {
+    const results = await Promise.all(region.cameraFetchers.map(f => f.fetch()));
     const allCameras: Camera[] = [];
-
-    if (mdResult.success && mdResult.data) {
-      allCameras.push(...mdResult.data);
+    for (const result of results) {
+      if (result.success && result.data) allCameras.push(...result.data);
     }
 
-    if (dcResult.success && dcResult.data) {
-      allCameras.push(...dcResult.data);
-    }
-
-    if (landmarkResult.success && landmarkResult.data) {
-      allCameras.push(...landmarkResult.data);
-    }
-
+    const state = this.getState(region.id);
     for (const camera of allCameras) {
-      const existing = this.cameras.get(camera.id);
-
+      const existing = state.cameras.get(camera.id);
       if (!existing || existing.lastUpdated !== camera.lastUpdated) {
-        this.cameras.set(camera.id, camera);
+        state.cameras.set(camera.id, camera);
         database.upsertCamera(camera);
         sse.broadcast('camera:update', camera);
       }
     }
   }
 
-  private async fetchTrafficIncidents(): Promise<void> {
-    // Fetch from both Maryland CHART and DC HSEMA
-    const [mdResult, dcResult] = await Promise.all([
-      mdchartIncidentsFetcher.fetch(),
-      dcTrafficFetcher.fetch(),
-    ]);
-
-    if (mdResult.success && mdResult.data) {
-      await this.processIncidents(mdResult.data);
-    }
-
-    if (dcResult.success && dcResult.data) {
-      await this.processIncidents(dcResult.data);
+  private async fetchTrafficIncidents(region: RegionPack): Promise<void> {
+    const results = await Promise.all(region.trafficIncidentFetchers.map(f => f.fetch()));
+    for (const result of results) {
+      if (result.success && result.data) {
+        await this.processIncidents(region, result.data);
+      }
     }
   }
 
-  private async fetchCrime(): Promise<void> {
-    const result = await dcCrimeFetcher.fetch();
-
-    if (result.success && result.data) {
-      await this.processIncidents(result.data);
+  private async fetchCrime(region: RegionPack): Promise<void> {
+    const results = await Promise.all(region.crimeFetchers.map(f => f.fetch()));
+    for (const result of results) {
+      if (result.success && result.data) {
+        await this.processIncidents(region, result.data);
+      }
     }
   }
 
-  private async fetchMoCoCrime(): Promise<void> {
-    const result = await mocoCrimeFetcher.fetch();
-
-    if (result.success && result.data) {
-      await this.processIncidents(result.data);
+  private async fetchShotSpotter(region: RegionPack): Promise<void> {
+    const results = await Promise.all(region.shotspotterFetchers.map(f => f.fetch()));
+    for (const result of results) {
+      if (result.success && result.data) {
+        await this.processIncidents(region, result.data);
+      }
     }
   }
 
-  private async fetchPGCrime(): Promise<void> {
-    const result = await pgCrimeFetcher.fetch();
-
-    if (result.success && result.data) {
-      await this.processIncidents(result.data);
+  private async fetchEmergencyAlerts(region: RegionPack): Promise<void> {
+    const results = await Promise.all(region.emergencyAlertFetchers.map(f => f.fetch()));
+    for (const result of results) {
+      if (result.success && result.data) {
+        await this.processIncidents(region, result.data);
+      }
     }
   }
 
-  private async fetchShotSpotter(): Promise<void> {
-    const result = await dcShotSpotterFetcher.fetch();
-
+  private async fetchTransit(region: RegionPack): Promise<void> {
+    if (!region.transitFetcher) return;
+    const result = await region.transitFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(result.data);
+      await this.processIncidents(region, result.data);
     }
   }
 
-  private async fetchAlertDC(): Promise<void> {
-    const result = await alertDCFetcher.fetch();
-
+  private async fetchAirQuality(region: RegionPack): Promise<void> {
+    const result = await region.airQualityFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(result.data);
-    }
-  }
-
-  private async fetchTransit(): Promise<void> {
-    const result = await wmataFetcher.fetch();
-
-    if (result.success && result.data) {
-      await this.processIncidents(result.data);
-    }
-  }
-
-  private async fetchAirQuality(): Promise<void> {
-    const result = await airnowFetcher.fetch();
-
-    if (result.success && result.data) {
-      this.airQuality = result.data;
-
+      const state = this.getState(region.id);
+      state.airQuality = result.data;
       for (const aqi of result.data) {
         sse.broadcast('aqi:update', aqi);
       }
     }
   }
 
-  private async fetchCurrentWeather(): Promise<void> {
-    const result = await currentWeatherFetcher.fetch();
-
+  private async fetchCurrentWeather(region: RegionPack): Promise<void> {
+    const result = await region.currentWeatherFetcher.fetch();
     if (result.success && result.data && result.data.length > 0) {
       const weather = result.data[0];
-      
-      // Only broadcast if data changed
-      if (!this.currentWeather || 
-          this.currentWeather.temperature !== weather.temperature ||
-          this.currentWeather.description !== weather.description) {
-        this.currentWeather = weather;
+      const state = this.getState(region.id);
+      if (!state.currentWeather ||
+          state.currentWeather.temperature !== weather.temperature ||
+          state.currentWeather.description !== weather.description) {
+        state.currentWeather = weather;
         sse.broadcast('weather:current', weather);
       }
     }
   }
 
-  private async fetchScanner(): Promise<void> {
-    const result = await openMHzFetcher.fetch();
-
+  private async fetchScanner(region: RegionPack): Promise<void> {
+    if (!region.scannerFetcher) return;
+    const result = await region.scannerFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(result.data);
+      await this.processIncidents(region, result.data);
     }
   }
 
-  private async fetchDCFireEMSTwitter(): Promise<void> {
-    const result = await dcFireEMSTwitterFetcher.fetch();
-
+  private async fetchTwitter(region: RegionPack): Promise<void> {
+    if (!region.twitterFetcher) return;
+    const result = await region.twitterFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(result.data);
+      await this.processIncidents(region, result.data);
     }
   }
 
-  private async fetchPulsePoint(): Promise<void> {
-    const result = await pulsePointFetcher.fetch();
-
+  private async fetchPulsePoint(region: RegionPack): Promise<void> {
+    if (!region.pulsePointFetcher) return;
+    const result = await region.pulsePointFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(result.data);
+      await this.processIncidents(region, result.data);
     }
   }
 
-  private async fetchAircraft(): Promise<void> {
-    const result = await openskyFetcher.fetch();
-
+  private async fetchAircraft(region: RegionPack): Promise<void> {
+    const result = await region.aircraftFetcher.fetch();
     if (result.success && result.data) {
-      // Replace all aircraft with new data (aircraft positions are ephemeral)
-      this.aircraft.clear();
+      const state = this.getState(region.id);
+      state.aircraft.clear();
       for (const aircraft of result.data) {
-        this.aircraft.set(aircraft.id, aircraft);
+        state.aircraft.set(aircraft.id, aircraft);
       }
-
-      // Broadcast full aircraft list to all clients
       sse.broadcast('aircraft:update', {
+        regionId: region.id,
         aircraft: result.data,
         timestamp: new Date().toISOString(),
       });
     }
   }
 
-  private async fetchNews(): Promise<void> {
+  private async fetchNews(region: RegionPack): Promise<void> {
     try {
-      const newsItems = await newsFetcher.fetchNews();
-      
-      // Update news list
-      this.news = newsItems;
-
-      // Broadcast to clients
+      const newsItems = await region.newsFetcher.fetchNews();
+      const state = this.getState(region.id);
+      state.news = newsItems;
       sse.broadcast('news:update', {
+        regionId: region.id,
         news: newsItems,
         timestamp: new Date().toISOString(),
       });
-
-      logger.info(`News: Updated with ${newsItems.length} items`);
+      logger.info(`News (${region.id}): Updated with ${newsItems.length} items`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error(`News fetch failed: ${errorMessage}`);
+      logger.error(`News (${region.id}) fetch failed: ${errorMessage}`);
     }
   }
 
-  private async processIncidents(newIncidents: Incident[]): Promise<void> {
+  // ---------- shared processing ----------
+
+  private async processIncidents(region: RegionPack, newIncidents: Incident[]): Promise<void> {
+    if (newIncidents.length === 0) return;
+
+    const state = this.getState(region.id);
     const processedIds = new Set<string>();
     let hasChanges = false;
 
     for (const incident of newIncidents) {
+      // Belt-and-suspenders: ensure regionId is set
+      if (!incident.regionId) incident.regionId = region.id;
       processedIds.add(incident.id);
-      const existing = this.incidents.get(incident.id);
+      const existing = state.incidents.get(incident.id);
 
       if (!existing) {
-        // New incident
-        this.incidents.set(incident.id, incident);
+        state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         sse.broadcast('incident:new', incident);
         hasChanges = true;
       } else if (existing.updatedAt !== incident.updatedAt) {
-        // Updated incident
-        this.incidents.set(incident.id, incident);
+        state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         sse.broadcast('incident:update', incident);
         hasChanges = true;
       }
     }
 
-    // Check for cleared incidents from this source
-    // IMPORTANT: Don't auto-clear PulsePoint incidents - they only show a limited
-    // number of active incidents, so absence doesn't mean cleared.
-    // Same for crime data which shows last 24h, not necessarily all active.
+    // Cross-clear: only for sources whose feed is a complete snapshot.
     const sourcePrefix = newIncidents[0]?.source;
-    const sourcesWithCompleteListing = ['mdchart', 'dc-traffic', 'wmata', 'alertdc'];
-    
-    if (sourcePrefix && sourcesWithCompleteListing.includes(sourcePrefix)) {
-      for (const [id, incident] of this.incidents) {
+    if (sourcePrefix && region.sourcesWithCompleteListing.includes(sourcePrefix)) {
+      for (const [id, incident] of state.incidents) {
         if (incident.source === sourcePrefix && !processedIds.has(id)) {
-          // Incident no longer in feed - mark as cleared
           if (incident.status === 'active') {
             incident.status = 'cleared';
             incident.updatedAt = new Date().toISOString();
             database.updateIncidentStatus(id, 'cleared');
-            sse.broadcast('incident:clear', { id });
+            sse.broadcast('incident:clear', { id, regionId: region.id });
             hasChanges = true;
           }
         }
       }
     }
 
-    // Persist to Redis if there were changes (debounced)
     if (hasChanges) {
-      this.persistIncidents().catch(() => {});
+      this.persistIncidents(region.id).catch(() => {});
     }
   }
 
-  /**
-   * Clean up stale incidents that haven't been updated
-   * This handles sources like PulsePoint that don't provide complete listings.
-   * Default expiration is 24 hours for all incident types.
-   */
   private cleanupStaleIncidents(): void {
     const now = Date.now();
-    let clearedCount = 0;
-
-    // Default 24 hours for all sources
-    // Crime data gets longer retention since it's historical records
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-    
+
     const expirationMs: Record<string, number> = {
-      // Crime data - keep for 30 days to match API fetch window
       'dc-crime': THIRTY_DAYS,
       'moco-crime': THIRTY_DAYS,
       'pg-crime': THIRTY_DAYS,
-      // Everything else - 24 hours (including pulsepoint, shotspotter, scanner, etc.)
+      'bpd-crime': THIRTY_DAYS,
       'default': TWENTY_FOUR_HOURS,
     };
 
-    for (const [id, incident] of this.incidents) {
-      if (incident.status !== 'active') continue;
+    const changedRegions = new Set<RegionId>();
+    let clearedCount = 0;
 
-      const incidentAge = now - new Date(incident.timestamp).getTime();
-      const maxAge = expirationMs[incident.source] || expirationMs['default'];
+    for (const [regionId, state] of this.state) {
+      for (const [id, incident] of state.incidents) {
+        if (incident.status !== 'active') continue;
 
-      if (incidentAge > maxAge) {
-        incident.status = 'cleared';
-        incident.updatedAt = new Date().toISOString();
-        database.updateIncidentStatus(id, 'cleared');
-        sse.broadcast('incident:clear', { id });
-        clearedCount++;
+        const incidentAge = now - new Date(incident.timestamp).getTime();
+        const maxAge = expirationMs[incident.source] || expirationMs['default'];
+
+        if (incidentAge > maxAge) {
+          incident.status = 'cleared';
+          incident.updatedAt = new Date().toISOString();
+          database.updateIncidentStatus(id, 'cleared');
+          sse.broadcast('incident:clear', { id, regionId });
+          clearedCount++;
+          changedRegions.add(regionId);
+        }
       }
     }
 
     if (clearedCount > 0) {
-      logger.info(`Cleaned up ${clearedCount} stale incidents`);
-      this.persistIncidents().catch(() => {});
+      logger.info(`Cleaned up ${clearedCount} stale incidents across ${changedRegions.size} region(s)`);
+      for (const regionId of changedRegions) {
+        this.persistIncidents(regionId).catch(() => {});
+      }
     }
   }
 
-  /**
-   * Get all current data
-   */
-  getAll(): AggregatedData {
+  // ---------- public getters ----------
+
+  private flatten<T>(picker: (s: RegionState) => Iterable<T>, regionId?: RegionId): T[] {
+    if (regionId) {
+      const s = this.state.get(regionId);
+      return s ? Array.from(picker(s)) : [];
+    }
+    const out: T[] = [];
+    for (const s of this.state.values()) {
+      for (const item of picker(s)) out.push(item);
+    }
+    return out;
+  }
+
+  getAll(regionId?: RegionId): AggregatedData {
+    const currentByRegion: Record<RegionId, CurrentWeather | null> = { dc: null, boise: null };
+    for (const [rid, s] of this.state) currentByRegion[rid] = s.currentWeather;
+
     return {
-      incidents: Array.from(this.incidents.values()).filter(
-        (i) => i.status === 'active'
-      ),
-      cameras: Array.from(this.cameras.values()),
-      weather: Array.from(this.weatherAlerts.values()),
-      airQuality: this.airQuality,
-      currentWeather: this.currentWeather,
-      aircraft: Array.from(this.aircraft.values()),
+      incidents: this.flatten(s => Array.from(s.incidents.values()).filter(i => i.status === 'active'), regionId),
+      cameras: this.flatten(s => s.cameras.values(), regionId),
+      weather: this.flatten(s => s.weatherAlerts.values(), regionId),
+      airQuality: this.flatten(s => s.airQuality, regionId),
+      currentWeather: regionId
+        ? ({ ...currentByRegion, ...(regionId === 'dc' ? { dc: this.getState('dc').currentWeather } : {}), ...(regionId === 'boise' ? { boise: this.getState('boise').currentWeather } : {}) })
+        : currentByRegion,
+      aircraft: this.flatten(s => s.aircraft.values(), regionId),
+      news: this.flatten(s => s.news, regionId),
     };
   }
 
-  /**
-   * Get current weather conditions
-   */
-  getCurrentWeather(): CurrentWeather | null {
-    return this.currentWeather;
+  getCurrentWeather(regionId?: RegionId): CurrentWeather | null {
+    if (regionId) return this.getState(regionId).currentWeather;
+    // Without a region, return the first available (frontend should pass regionId).
+    for (const s of this.state.values()) {
+      if (s.currentWeather) return s.currentWeather;
+    }
+    return null;
   }
 
-  /**
-   * Get active incidents
-   */
-  getIncidents(): Incident[] {
-    return Array.from(this.incidents.values()).filter((i) => i.status === 'active');
+  getIncidents(regionId?: RegionId): Incident[] {
+    return this.flatten(s => Array.from(s.incidents.values()).filter(i => i.status === 'active'), regionId);
   }
 
-  /**
-   * Get incident by ID
-   */
   getIncidentById(id: string): Incident | undefined {
-    return this.incidents.get(id);
+    for (const s of this.state.values()) {
+      const i = s.incidents.get(id);
+      if (i) return i;
+    }
+    return undefined;
   }
 
-  /**
-   * Get all cameras
-   */
-  getCameras(): Camera[] {
-    return Array.from(this.cameras.values());
+  getCameras(regionId?: RegionId): Camera[] {
+    return this.flatten(s => s.cameras.values(), regionId);
   }
 
-  /**
-   * Get camera by ID
-   */
   getCameraById(id: string): Camera | undefined {
-    return this.cameras.get(id);
+    for (const s of this.state.values()) {
+      const c = s.cameras.get(id);
+      if (c) return c;
+    }
+    return undefined;
   }
 
-  /**
-   * Get weather alerts
-   */
-  getWeatherAlerts(): WeatherAlert[] {
-    return Array.from(this.weatherAlerts.values());
+  getWeatherAlerts(regionId?: RegionId): WeatherAlert[] {
+    return this.flatten(s => s.weatherAlerts.values(), regionId);
   }
 
-  /**
-   * Get air quality data
-   */
-  getAirQuality(): AirQuality[] {
-    return this.airQuality;
+  getAirQuality(regionId?: RegionId): AirQuality[] {
+    return this.flatten(s => s.airQuality, regionId);
   }
 
-  /**
-   * Get aircraft data
-   */
-  getAircraft(): Aircraft[] {
-    return Array.from(this.aircraft.values());
+  getAircraft(regionId?: RegionId): Aircraft[] {
+    return this.flatten(s => s.aircraft.values(), regionId);
   }
 
-  /**
-   * Get news items
-   */
-  getNews(): NewsItem[] {
-    return this.news;
+  getNews(regionId?: RegionId): NewsItem[] {
+    return this.flatten(s => s.news, regionId);
   }
 
-  /**
-   * Find news items related to an incident
-   */
-  findRelatedNews(incidentTitle: string, incidentAddress?: string, incidentType?: string): NewsItem[] {
-    return newsFetcher.findRelatedNews(this.news, incidentTitle, incidentAddress, incidentType);
+  findRelatedNews(incidentTitle: string, incidentAddress?: string, incidentType?: string, regionId?: RegionId): NewsItem[] {
+    // Search within the incident's region (or default region if not specified).
+    const targetRegionId = regionId || allRegions[0]?.id;
+    const region = allRegions.find(r => r.id === targetRegionId);
+    if (!region) return [];
+    return region.newsFetcher.findRelatedNews(
+      this.getState(region.id).news,
+      incidentTitle,
+      incidentAddress,
+      incidentType,
+    );
   }
 
-  /**
-   * Shutdown the aggregator
-   */
   async shutdown(): Promise<void> {
     scheduler.shutdown();
-    await pulsePointFetcher.shutdown();
+    // Shut down each region's PulsePoint browser (if any).
+    for (const region of allRegions) {
+      const pp = region.pulsePointFetcher;
+      if (pp && 'shutdown' in pp && typeof (pp as { shutdown?: unknown }).shutdown === 'function') {
+        await (pp as { shutdown: () => Promise<void> }).shutdown().catch(() => {});
+      }
+    }
     logger.info('Aggregator service shut down');
   }
 }

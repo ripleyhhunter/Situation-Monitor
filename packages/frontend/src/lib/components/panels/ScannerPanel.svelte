@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { selectedRegion } from '$stores/region';
+  import { REGION_PRESETS } from '$lib/config';
 
   const dispatch = createEventDispatcher();
 
@@ -13,71 +15,31 @@
     recommended?: boolean;
   }
 
-  // DC Area Scanner & Fire/EMS Feeds
-  const scannerFeeds: ScannerFeed[] = [
-    {
-      id: 'pulsepoint',
-      name: '🔥 PulsePoint App',
-      description: 'Also view on the official PulsePoint app/website',
-      url: 'https://web.pulsepoint.org/',
-      type: 'pulsepoint',
-      recommended: false,
-    },
-    {
-      id: 'dc-fire-ems-calls',
-      name: 'DC Fire/EMS Audio',
-      description: 'DCFD via Broadcastify Calls platform',
-      url: 'https://www.broadcastify.com/calls/playlists/?uuid=1c951e2a-efd3-11ef-9e04-0e98d5b32039',
-      type: 'broadcastify-calls',
-    },
-    {
-      id: 'openmhz-dcfd',
-      name: 'OpenMHz - DCFD',
-      description: 'Archived Fire/EMS calls with playback',
-      url: 'https://openmhz.com/system/dcfd',
-      type: 'openmhz',
-    },
-    {
-      id: 'mwaa-public-safety',
-      name: 'DC Airports Public Safety',
-      description: 'DCA & IAD Fire/Rescue/Police',
-      url: 'https://www.broadcastify.com/listen/feed/1605',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/1605',
-      type: 'broadcastify',
-    },
-    {
-      id: 'mutual-aid-md-dc',
-      name: 'MD-DC Mutual Aid',
-      description: 'Interoperability channels',
-      url: 'https://www.broadcastify.com/listen/feed/41616',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/41616',
-      type: 'broadcastify',
-    },
-    {
-      id: 'wmata-rail',
-      name: 'WMATA MetroRail',
-      description: 'Metro Rail communications',
-      url: 'https://www.broadcastify.com/listen/feed/41617',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/41617',
-      type: 'broadcastify',
-    },
-    {
-      id: 'pg-fire',
-      name: "Prince George's Co Fire/EMS",
-      description: 'PG County Dispatch & Fireground',
-      url: 'https://www.broadcastify.com/listen/feed/24385',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/24385',
-      type: 'broadcastify',
-    },
-    {
-      id: 'montgomery-fire',
-      name: 'Montgomery Co Fire Dispatch',
-      description: 'MoCo Fire/Rescue Dispatch',
-      url: 'https://www.broadcastify.com/listen/feed/45306',
-      popoutUrl: 'https://www.broadcastify.com/listen/feed/45306',
-      type: 'broadcastify',
-    },
-  ];
+  // Per-region scanner feed lists. Boise/Ada County uses SWIRC P25 Phase II
+  // (encrypted dispatch on some talkgroups), so we mostly point users at
+  // PulsePoint + RadioReference / OpenMHz search rather than direct streams.
+  const FEEDS_BY_REGION: Record<string, ScannerFeed[]> = {
+    dc: [
+      { id: 'pulsepoint', name: '🔥 PulsePoint App', description: 'Also view on the official PulsePoint app/website', url: 'https://web.pulsepoint.org/', type: 'pulsepoint' },
+      { id: 'dc-fire-ems-calls', name: 'DC Fire/EMS Audio', description: 'DCFD via Broadcastify Calls platform', url: 'https://www.broadcastify.com/calls/playlists/?uuid=1c951e2a-efd3-11ef-9e04-0e98d5b32039', type: 'broadcastify-calls' },
+      { id: 'openmhz-dcfd', name: 'OpenMHz - DCFD', description: 'Archived Fire/EMS calls with playback', url: 'https://openmhz.com/system/dcfd', type: 'openmhz' },
+      { id: 'mwaa-public-safety', name: 'DC Airports Public Safety', description: 'DCA & IAD Fire/Rescue/Police', url: 'https://www.broadcastify.com/listen/feed/1605', popoutUrl: 'https://www.broadcastify.com/listen/feed/1605', type: 'broadcastify' },
+      { id: 'mutual-aid-md-dc', name: 'MD-DC Mutual Aid', description: 'Interoperability channels', url: 'https://www.broadcastify.com/listen/feed/41616', popoutUrl: 'https://www.broadcastify.com/listen/feed/41616', type: 'broadcastify' },
+      { id: 'wmata-rail', name: 'WMATA MetroRail', description: 'Metro Rail communications', url: 'https://www.broadcastify.com/listen/feed/41617', popoutUrl: 'https://www.broadcastify.com/listen/feed/41617', type: 'broadcastify' },
+      { id: 'pg-fire', name: "Prince George's Co Fire/EMS", description: 'PG County Dispatch & Fireground', url: 'https://www.broadcastify.com/listen/feed/24385', popoutUrl: 'https://www.broadcastify.com/listen/feed/24385', type: 'broadcastify' },
+      { id: 'montgomery-fire', name: 'Montgomery Co Fire Dispatch', description: 'MoCo Fire/Rescue Dispatch', url: 'https://www.broadcastify.com/listen/feed/45306', popoutUrl: 'https://www.broadcastify.com/listen/feed/45306', type: 'broadcastify' },
+    ],
+    boise: [
+      { id: 'pulsepoint', name: '🔥 PulsePoint App', description: 'Ada County ACCESS - Boise Fire, Meridian Fire, Eagle/Star/N Ada Fire, Ada County Paramedics', url: 'https://web.pulsepoint.org/?agencyid=EMS1169', type: 'pulsepoint' },
+      { id: 'radioreference-ada', name: 'RadioReference - Ada County', description: 'SWIRC P25 Phase II talkgroup directory', url: 'https://www.radioreference.com/db/browse/ctid/547', popoutUrl: 'https://www.radioreference.com/db/browse/ctid/547', type: 'broadcastify' },
+      { id: 'broadcastify-boi-airport', name: 'Boise Airport (BOI) Public Safety', description: 'Airport fire/police/security', url: 'https://www.broadcastify.com/db/aid/1809', popoutUrl: 'https://www.broadcastify.com/db/aid/1809', type: 'broadcastify' },
+    ],
+  };
+
+  // Reactive: re-derive when user switches region.
+  $: scannerFeeds = (FEEDS_BY_REGION[$selectedRegion.id] ?? FEEDS_BY_REGION.dc) as ScannerFeed[];
+  $: void REGION_PRESETS; // keep import for clarity / future use
+
 
   let activePlayer: string | null = null;
   let embedLoading = false;
@@ -131,7 +93,11 @@
   <!-- Info about available feeds -->
   <div class="p-2 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800">
     <p class="text-xs text-green-800 dark:text-green-200">
-      <strong>🔥 Fire/EMS incidents are live on the map!</strong> Data from DC Fire & EMS via PulsePoint, updated every 2 minutes. DC Police radios are encrypted since 2011.
+      {#if $selectedRegion.id === 'boise'}
+        <strong>🔥 Fire/EMS incidents are live on the map!</strong> Data from Ada County ACCESS via PulsePoint, updated every 2 minutes. Boise PD uses SWIRC P25 Phase II — some channels encrypted.
+      {:else}
+        <strong>🔥 Fire/EMS incidents are live on the map!</strong> Data from DC Fire & EMS via PulsePoint, updated every 2 minutes. DC Police radios are encrypted since 2011.
+      {/if}
     </p>
   </div>
 

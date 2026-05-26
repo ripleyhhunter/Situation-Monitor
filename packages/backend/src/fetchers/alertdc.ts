@@ -185,6 +185,7 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       },
       timestamp,
       updatedAt: new Date().toISOString(),
+      regionId: 'dc',
       source: 'alertdc',
       title: item.title,
       description: item.description,

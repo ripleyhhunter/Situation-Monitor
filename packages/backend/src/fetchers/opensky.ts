@@ -1,17 +1,15 @@
 import { BaseFetcher } from './base.js';
-import type { Aircraft, AircraftCategory, AircraftMetadata } from '../types/index.js';
+import type { Aircraft, AircraftCategory, AircraftMetadata, RegionId } from '../types/index.js';
+import type { BoundingBox } from '../regions/types.js';
 import { cache } from '../services/cache.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
-// DC metro area bounding box
-// Covers DCA (Reagan), IAD (Dulles), BWI, and surrounding area
-const DC_BOUNDS = {
-  lamin: 38.6,   // South of Alexandria
-  lamax: 39.3,   // North to cover BWI
-  lomin: -77.6,  // West of Dulles
-  lomax: -76.6,  // East past Annapolis
-};
+export interface OpenSkyFetcherOptions {
+  regionId: RegionId;
+  regionName: string;
+  bounds: BoundingBox;
+}
 
 // OAuth2 token cache
 let cachedToken: string | null = null;
@@ -78,9 +76,15 @@ interface OpenSkyResponse {
 
 export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
   private metadataInitialized = false;
+  private regionId: RegionId;
+  private regionName: string;
+  private bounds: BoundingBox;
 
-  constructor() {
-    super('opensky', config.cacheTtl.aircraft);
+  constructor(opts: OpenSkyFetcherOptions) {
+    super(`opensky-${opts.regionId}`, config.cacheTtl.aircraft);
+    this.regionId = opts.regionId;
+    this.regionName = opts.regionName;
+    this.bounds = opts.bounds;
   }
 
   /**
@@ -266,16 +270,16 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
     await this.initializeMetadataCache();
 
     const params = new URLSearchParams({
-      lamin: DC_BOUNDS.lamin.toString(),
-      lamax: DC_BOUNDS.lamax.toString(),
-      lomin: DC_BOUNDS.lomin.toString(),
-      lomax: DC_BOUNDS.lomax.toString(),
+      lamin: this.bounds.lamin.toString(),
+      lamax: this.bounds.lamax.toString(),
+      lomin: this.bounds.lomin.toString(),
+      lomax: this.bounds.lomax.toString(),
     });
 
     const url = `https://opensky-network.org/api/states/all?${params}`;
 
     const headers: Record<string, string> = {
-      'User-Agent': 'SituationMonitor/1.0 (DC Area Monitoring Dashboard)',
+      'User-Agent': `SituationMonitor/1.0 (${this.regionName} Monitoring Dashboard)`,
     };
 
     // Try OAuth2 authentication
@@ -289,7 +293,7 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
       const response = await this.httpGet<OpenSkyResponse>(url, { headers });
 
       if (!response.states || !Array.isArray(response.states)) {
-        logger.debug('OpenSky returned no aircraft in DC area');
+        logger.debug(`OpenSky returned no aircraft in ${this.regionName} area`);
         return [];
       }
 
@@ -327,7 +331,7 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
       }
 
       const helicopters = aircraft.filter(a => a.category === 'helicopter');
-      logger.info(`OpenSky: ${aircraft.length} aircraft in DC area`, {
+      logger.info(`OpenSky: ${aircraft.length} aircraft in ${this.regionName} area`, {
         inAir: aircraft.filter((a) => !a.onGround).length,
         onGround: aircraft.filter((a) => a.onGround).length,
         helicopters: helicopters.length,
@@ -367,6 +371,7 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
 
     return {
       id: `aircraft-${icao24}`,
+      regionId: this.regionId,
       icao24,
       callsign: callsign || icao24.toUpperCase(),
       location: {
@@ -514,5 +519,3 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
   }
 }
 
-export const openskyFetcher = new OpenSkyFetcher();
-export default openskyFetcher;

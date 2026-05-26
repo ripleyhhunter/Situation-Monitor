@@ -1,8 +1,9 @@
 import { writable, derived } from 'svelte/store';
 import type { Camera } from '$types';
 import { filters } from './filters';
+import { selectedRegionId } from './region';
 
-// Store for all cameras
+// Store for all cameras across every region.
 export const cameras = writable<Map<string, Camera>>(new Map());
 
 // Add or update a camera
@@ -26,26 +27,27 @@ export function clearAllCameras(): void {
   cameras.set(new Map());
 }
 
-// Derived store for camera array
-export const cameraList = derived(cameras, ($cameras) =>
-  Array.from($cameras.values())
+// Camera array for the selected region.
+export const cameraList = derived(
+  [cameras, selectedRegionId],
+  ([$cameras, $regionId]) =>
+    Array.from($cameras.values()).filter((c) => c.regionId === $regionId),
 );
 
-// Derived store for filtered cameras (respects showLocationOnlyCameras filter)
+// Filtered cameras for the selected region (respects showLocationOnlyCameras filter).
 export const filteredCameraList = derived(
-  [cameras, filters],
-  ([$cameras, $filters]) => {
-    const allCameras = Array.from($cameras.values());
-    
+  [cameras, filters, selectedRegionId],
+  ([$cameras, $filters, $regionId]) => {
+    const regional = Array.from($cameras.values()).filter((c) => c.regionId === $regionId);
+
     if ($filters.showLocationOnlyCameras) {
-      // Show all cameras
-      return allCameras;
+      return regional;
     }
-    
-    // Hide DC cameras which are location-only markers (no public feeds available)
-    // Keep landmark webcams which have working external links via streamUrl
-    return allCameras.filter(camera => camera.source !== 'dc');
-  }
+
+    // Hide DC cameras which are location-only markers (no public feeds available).
+    // Keep landmark webcams which have working external links via streamUrl.
+    return regional.filter((camera) => camera.source !== 'dc');
+  },
 );
 
 // Selected camera for modal view

@@ -213,6 +213,7 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
       location,
       timestamp,
       updatedAt: new Date().toISOString(),
+      regionId: 'dc',
       source: 'alertdc', // Group with emergency alerts
       title: this.buildTitle(tweet.text, category),
       description: tweet.text,
@@ -220,6 +221,7 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
       category,
       metadata: {
         tweetId: tweet.id,
+        regionId: 'dc',
         source: 'twitter',
         username: 'dcfireems',
       },

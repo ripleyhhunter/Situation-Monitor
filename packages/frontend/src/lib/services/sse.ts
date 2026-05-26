@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem } from '$types';
+import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId } from '$types';
 import { upsertIncident, clearIncident } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
 import { upsertWeatherAlert, removeWeatherAlert, setAirQuality, setCurrentWeather } from '$stores/weather';
@@ -123,13 +123,13 @@ class SSEService {
     });
 
     this.eventSource.addEventListener('aircraft:update', (event) => {
-      const data = JSON.parse(event.data) as SSEEvent<{ aircraft: Aircraft[]; timestamp: string }>;
-      updateAircraft(data.data.aircraft);
+      const data = JSON.parse(event.data) as SSEEvent<{ regionId: RegionId; aircraft: Aircraft[]; timestamp: string }>;
+      updateAircraft(data.data.regionId, data.data.aircraft);
       lastEventTime.set(data.timestamp);
     });
 
     this.eventSource.addEventListener('news:update', (event) => {
-      const data = JSON.parse(event.data) as SSEEvent<{ news: NewsItem[]; timestamp: string }>;
+      const data = JSON.parse(event.data) as SSEEvent<{ regionId: RegionId; news: NewsItem[]; timestamp: string }>;
       updateNews(data.data.news);
       lastEventTime.set(data.timestamp);
     });

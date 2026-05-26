@@ -1,3 +1,7 @@
+# Claude AI settings
+CLAUDE.md
+.claude/
+
 # Dependencies
 node_modules/
 
@@ -6,20 +10,24 @@ dist/
 build/
 .svelte-kit/
 
-# Environment files
+# Environment variables
 .env
 .env.local
 .env.*.local
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
 
 # Logs
 logs/
 *.log
 npm-debug.log*
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+# OS files
+.DS_Store
+Thumbs.db
 
 # IDE
 .idea/
@@ -27,16 +35,11 @@ npm-debug.log*
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Turbo
 .turbo/
 
 # Test coverage
 coverage/
 
-# Temp files
-*.tmp
-*.temp
+# Startup script (personal)
+start-monitor.bat

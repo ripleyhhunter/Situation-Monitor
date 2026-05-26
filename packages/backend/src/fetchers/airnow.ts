@@ -1,7 +1,15 @@
 import { BaseFetcher } from './base.js';
-import type { AirQuality } from '../types/index.js';
+import type { AirQuality, RegionId } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
+
+export interface AirNowFetcherOptions {
+  regionId: RegionId;
+  lat: number;
+  lng: number;
+  /** AirNow API key (shared across regions). */
+  apiKey?: string;
+}
 
 interface AirNowObservation {
   DateObserved: string;
@@ -20,28 +28,31 @@ interface AirNowObservation {
 }
 
 export class AirNowFetcher extends BaseFetcher<AirQuality> {
+  private regionId: RegionId;
+  private lat: number;
+  private lng: number;
   private apiKey: string;
 
-  constructor() {
-    super('airnow', config.cacheTtl.airQuality);
-    this.apiKey = config.airnowApiKey || '';
+  constructor(opts: AirNowFetcherOptions) {
+    super(`airnow-${opts.regionId}`, config.cacheTtl.airQuality);
+    this.regionId = opts.regionId;
+    this.lat = opts.lat;
+    this.lng = opts.lng;
+    this.apiKey = opts.apiKey || config.airnowApiKey || '';
   }
 
   protected async fetchFromApi(): Promise<AirQuality[]> {
-    // Try API first, fallback to alternative source if no key
     if (this.apiKey) {
       return this.fetchFromAirNowApi();
     }
-
-    // Fallback: Use AirNow's public observation endpoint
     return this.fetchFromPublicEndpoint();
   }
 
   private async fetchFromAirNowApi(): Promise<AirQuality[]> {
     const url = new URL('https://www.airnowapi.org/aq/observation/latLong/current/');
     url.searchParams.set('format', 'application/json');
-    url.searchParams.set('latitude', config.defaultLat.toString());
-    url.searchParams.set('longitude', config.defaultLng.toString());
+    url.searchParams.set('latitude', this.lat.toString());
+    url.searchParams.set('longitude', this.lng.toString());
     url.searchParams.set('distance', '50'); // 50 mile radius
     url.searchParams.set('API_KEY', this.apiKey);
 
@@ -61,24 +72,10 @@ export class AirNowFetcher extends BaseFetcher<AirQuality> {
   }
 
   private async fetchFromPublicEndpoint(): Promise<AirQuality[]> {
-    // Use airnow.gov's public data for DC area
-    // This is a workaround if no API key is available
-    try {
-      const zipCode = '20001'; // DC zip code
-      const url = `https://www.airnow.gov/aqi/reporting-area/dc/washington/${zipCode}`;
-
-      // Since we can't scrape HTML easily, we'll return a default structure
-      // and log that API key is needed for real data
-      logger.info(
-        'AirNow API key not configured. Register at https://docs.airnowapi.org/ for real AQI data'
-      );
-
-      // Return empty - frontend will show "unavailable"
-      return [];
-    } catch (error) {
-      logger.debug('Failed to fetch public AirNow data', { error });
-      return [];
-    }
+    logger.info(
+      `AirNow (${this.regionId}): no API key configured. Register at https://docs.airnowapi.org/ for real AQI data`
+    );
+    return [];
   }
 
   private normalizeObservations(observations: AirNowObservation[]): AirQuality[] {
@@ -95,13 +92,13 @@ export class AirNowFetcher extends BaseFetcher<AirQuality> {
 
     const results: AirQuality[] = [];
 
-    byArea.forEach((areaObs, key) => {
-      // Find the observation with the highest AQI
+    byArea.forEach((areaObs) => {
       const maxObs = areaObs.reduce((max, obs) =>
         obs.AQI > max.AQI ? obs : max
       );
 
       results.push({
+        regionId: this.regionId,
         aqi: maxObs.AQI,
         category: maxObs.Category.Name,
         primaryPollutant: maxObs.ParameterName,
@@ -147,5 +144,3 @@ export class AirNowFetcher extends BaseFetcher<AirQuality> {
   }
 }
 
-export const airnowFetcher = new AirNowFetcher();
-export default airnowFetcher;

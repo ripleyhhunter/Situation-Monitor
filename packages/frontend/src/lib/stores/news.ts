@@ -1,18 +1,31 @@
 import { writable, derived } from 'svelte/store';
-import type { NewsItem } from '$types';
+import type { NewsItem, RegionId } from '$types';
+import { selectedRegionId } from './region';
 
-// Store for all news items
-export const news = writable<NewsItem[]>([]);
+// Per-region news (each SSE news:update carries regionId).
+export const newsByRegion = writable<Record<RegionId, NewsItem[]>>({
+  dc: [],
+  boise: [],
+});
 
-// Update news from SSE or API
 export function updateNews(items: NewsItem[]): void {
-  news.set(items);
+  // Items in a single update should all belong to the same region — bucket them.
+  if (items.length === 0) return;
+  const byRegion: Partial<Record<RegionId, NewsItem[]>> = {};
+  for (const item of items) {
+    (byRegion[item.regionId] ||= []).push(item);
+  }
+  newsByRegion.update((map) => ({ ...map, ...byRegion }));
 }
 
-// Derived store for news count
+/** News items for the currently selected region. */
+export const news = derived(
+  [newsByRegion, selectedRegionId],
+  ([$map, $regionId]) => $map[$regionId] || [],
+);
+
 export const newsCount = derived(news, ($news) => $news.length);
 
-// Derived store for news by source
 export const newsBySource = derived(news, ($news) => {
   const bySource: Record<string, NewsItem[]> = {};
   for (const item of $news) {
@@ -90,15 +103,12 @@ export function formatNewsTime(pubDate: string): string {
   });
 }
 
-// Get source display name
+// Get source display name (DC + Boise outlets).
 export function getSourceName(source: string): string {
   const names: Record<string, string> = {
-    wtop: 'WTOP',
-    dcist: 'DCist',
-    nbc4: 'NBC4',
-    wusa9: 'WUSA9',
-    fox5: 'FOX 5',
-    washpost: 'WaPo',
+    wtop: 'WTOP', dcist: 'DCist', nbc4: 'NBC4', wusa9: 'WUSA9', fox5: 'FOX 5', washpost: 'WaPo',
+    ktvb: 'KTVB', boisedev: 'BoiseDev', 'idaho-capital-sun': 'Capital Sun',
+    'idaho-statesman': 'Statesman', 'idaho-press': 'Idaho Press',
   };
   return names[source] || source.toUpperCase();
 }
@@ -106,12 +116,9 @@ export function getSourceName(source: string): string {
 // Get source color
 export function getSourceColor(source: string): string {
   const colors: Record<string, string> = {
-    wtop: '#0066cc',      // WTOP blue
-    dcist: '#e63946',     // DCist red
-    nbc4: '#4b0082',      // NBC purple
-    wusa9: '#ff6600',     // WUSA orange
-    fox5: '#003087',      // Fox blue
-    washpost: '#000000',  // WaPo black
+    wtop: '#0066cc', dcist: '#e63946', nbc4: '#4b0082', wusa9: '#ff6600', fox5: '#003087', washpost: '#000000',
+    ktvb: '#006eb6', boisedev: '#f59e0b', 'idaho-capital-sun': '#0f766e',
+    'idaho-statesman': '#1e40af', 'idaho-press': '#7c2d12',
   };
   return colors[source] || '#6b7280';
 }

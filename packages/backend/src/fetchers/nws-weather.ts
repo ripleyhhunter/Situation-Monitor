@@ -1,5 +1,5 @@
 import { BaseFetcher } from './base.js';
-import type { WeatherAlert, WeatherSeverity, WeatherUrgency } from '../types/index.js';
+import type { RegionId, WeatherAlert, WeatherSeverity, WeatherUrgency } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
@@ -27,19 +27,29 @@ interface NWSResponse {
   features: NWSAlert[];
 }
 
+export interface NWSWeatherFetcherOptions {
+  regionId: RegionId;
+  lat: number;
+  lng: number;
+  /** Public NWS zone IDs to use as fallback if the point query fails. */
+  zones: string[];
+}
+
 export class NWSWeatherFetcher extends BaseFetcher<WeatherAlert> {
+  private regionId: RegionId;
   private lat: number;
   private lng: number;
+  private zones: string[];
 
-  constructor() {
-    super('nws-weather', config.cacheTtl.weather);
-    this.lat = config.defaultLat;
-    this.lng = config.defaultLng;
+  constructor(opts: NWSWeatherFetcherOptions) {
+    super(`nws-weather-${opts.regionId}`, config.cacheTtl.weather);
+    this.regionId = opts.regionId;
+    this.lat = opts.lat;
+    this.lng = opts.lng;
+    this.zones = opts.zones;
   }
 
   protected async fetchFromApi(): Promise<WeatherAlert[]> {
-    // NWS API endpoint for alerts by point
-    // We use a radius around DC to get relevant alerts
     const url = `https://api.weather.gov/alerts/active?point=${this.lat},${this.lng}&status=actual`;
 
     try {
@@ -50,19 +60,16 @@ export class NWSWeatherFetcher extends BaseFetcher<WeatherAlert> {
       });
 
       return response.features.map((alert) => this.normalizeAlert(alert));
-    } catch (error) {
-      // Try fallback to zone-based alerts for DC area
-      logger.debug('Falling back to zone-based alert fetch');
+    } catch {
+      logger.debug(`NWS (${this.regionId}): point query failed, falling back to zones`);
       return this.fetchByZone();
     }
   }
 
   private async fetchByZone(): Promise<WeatherAlert[]> {
-    // DC area zone codes
-    const zones = ['DCZ001', 'MDZ013', 'MDZ014', 'VAZ053', 'VAZ054'];
     const alerts: WeatherAlert[] = [];
 
-    for (const zone of zones) {
+    for (const zone of this.zones) {
       try {
         const url = `https://api.weather.gov/alerts/active?zone=${zone}`;
         const response = await this.httpGet<NWSResponse>(url, {
@@ -72,13 +79,12 @@ export class NWSWeatherFetcher extends BaseFetcher<WeatherAlert> {
         });
 
         for (const alert of response.features) {
-          // Deduplicate by ID
           if (!alerts.find((a) => a.id === alert.id)) {
             alerts.push(this.normalizeAlert(alert));
           }
         }
       } catch (error) {
-        logger.warn(`Failed to fetch alerts for zone ${zone}`, { error });
+        logger.warn(`NWS (${this.regionId}): failed to fetch alerts for zone ${zone}`, { error });
       }
     }
 
@@ -90,6 +96,7 @@ export class NWSWeatherFetcher extends BaseFetcher<WeatherAlert> {
 
     return {
       id: props.id,
+      regionId: this.regionId,
       event: props.event,
       severity: this.mapSeverity(props.severity),
       urgency: this.mapUrgency(props.urgency),
@@ -131,11 +138,6 @@ export class NWSWeatherFetcher extends BaseFetcher<WeatherAlert> {
     if (!geometry || geometry.type !== 'Polygon' || !geometry.coordinates[0]) {
       return undefined;
     }
-
-    // Convert from [lng, lat] to [lat, lng] for Leaflet
     return geometry.coordinates[0].map(([lng, lat]) => [lat, lng]);
   }
 }
-
-export const nwsWeatherFetcher = new NWSWeatherFetcher();
-export default nwsWeatherFetcher;

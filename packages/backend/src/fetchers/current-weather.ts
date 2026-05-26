@@ -1,12 +1,12 @@
 /**
  * Current Weather Fetcher
- * 
- * Uses Open-Meteo API (free, no API key required) to fetch current weather conditions.
- * https://open-meteo.com/
+ *
+ * Uses Open-Meteo (free, no API key) for current conditions at the region's
+ * default center.
  */
 
 import { BaseFetcher } from './base.js';
-import type { CurrentWeather } from '../types/index.js';
+import type { CurrentWeather, RegionId } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
@@ -25,8 +25,6 @@ interface OpenMeteoResponse {
   };
 }
 
-// WMO Weather interpretation codes
-// https://open-meteo.com/en/docs#weathervariables
 const WMO_CODES: Record<number, { description: string; icon: string }> = {
   0: { description: 'Clear sky', icon: '☀️' },
   1: { description: 'Mainly clear', icon: '🌤️' },
@@ -58,45 +56,55 @@ const WMO_CODES: Record<number, { description: string; icon: string }> = {
   99: { description: 'Thunderstorm with heavy hail', icon: '⛈️' },
 };
 
-// Wind direction to cardinal
 function getWindDirection(degrees: number): string {
   const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const index = Math.round(degrees / 22.5) % 16;
   return directions[index];
 }
 
+export interface CurrentWeatherFetcherOptions {
+  regionId: RegionId;
+  lat: number;
+  lng: number;
+  timezone: string;
+}
+
 export class CurrentWeatherFetcher extends BaseFetcher<CurrentWeather> {
+  private regionId: RegionId;
   private lat: number;
   private lng: number;
+  private timezone: string;
 
-  constructor() {
-    super('current-weather', config.cacheTtl.weather);
-    this.lat = config.defaultLat;
-    this.lng = config.defaultLng;
+  constructor(opts: CurrentWeatherFetcherOptions) {
+    super(`current-weather-${opts.regionId}`, config.cacheTtl.weather);
+    this.regionId = opts.regionId;
+    this.lat = opts.lat;
+    this.lng = opts.lng;
+    this.timezone = opts.timezone;
   }
 
   protected async fetchFromApi(): Promise<CurrentWeather[]> {
-    // Open-Meteo API endpoint
     const url = new URL('https://api.open-meteo.com/v1/forecast');
     url.searchParams.set('latitude', this.lat.toString());
     url.searchParams.set('longitude', this.lng.toString());
     url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m');
     url.searchParams.set('temperature_unit', 'fahrenheit');
     url.searchParams.set('wind_speed_unit', 'mph');
-    url.searchParams.set('timezone', 'America/New_York');
+    url.searchParams.set('timezone', this.timezone);
 
     try {
       const response = await this.httpGet<OpenMeteoResponse>(url.toString());
 
       if (!response.current) {
-        logger.warn('Open-Meteo response missing current data');
+        logger.warn(`Open-Meteo (${this.regionId}): response missing current data`);
         return [];
       }
 
       const current = response.current;
       const weatherInfo = WMO_CODES[current.weather_code] || { description: 'Unknown', icon: '❓' };
 
-      const weather: CurrentWeather = {
+      return [{
+        regionId: this.regionId,
         temperature: current.temperature_2m,
         feelsLike: current.apparent_temperature,
         humidity: current.relative_humidity_2m,
@@ -105,15 +113,10 @@ export class CurrentWeatherFetcher extends BaseFetcher<CurrentWeather> {
         description: weatherInfo.description,
         icon: weatherInfo.icon,
         timestamp: new Date().toISOString(),
-      };
-
-      return [weather];
+      }];
     } catch (error) {
-      logger.error('Failed to fetch current weather', { error });
+      logger.error(`Open-Meteo (${this.regionId}): fetch failed`, { error });
       throw error;
     }
   }
 }
-
-export const currentWeatherFetcher = new CurrentWeatherFetcher();
-export default currentWeatherFetcher;

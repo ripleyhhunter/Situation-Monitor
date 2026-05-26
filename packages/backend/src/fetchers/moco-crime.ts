@@ -132,6 +132,7 @@ export class MoCoCrimeFetcher extends BaseFetcher<Incident> {
       },
       timestamp: incidentDate,
       updatedAt: now,
+      regionId: 'dc',
       source: 'moco-crime',
       title: this.formatOffense(crimeName),
       description: this.buildDescription(record),

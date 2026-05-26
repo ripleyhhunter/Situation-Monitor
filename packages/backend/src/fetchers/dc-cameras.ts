@@ -68,6 +68,7 @@ export class DCCamerasFetcher extends BaseFetcher<Camera> {
         lat,
         lng,
       },
+      regionId: 'dc',
       source: 'dc',
       // DC doesn't provide public live feeds - link to WeatherBug as fallback
       streamUrl: 'https://www.weatherbug.com/traffic-cam/washington-dc-20001',

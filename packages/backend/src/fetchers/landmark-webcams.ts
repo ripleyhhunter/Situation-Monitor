@@ -287,6 +287,7 @@ export class LandmarkWebcamsFetcher extends BaseFetcher<Camera> {
           lat: webcam.lat,
           lng: webcam.lng,
         },
+        regionId: 'dc',
         source: 'landmark' as const,
         streamUrl,
         imageUrl: undefined, // Most require page visit

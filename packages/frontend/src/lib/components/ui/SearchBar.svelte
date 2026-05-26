@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { selectedRegion } from '$stores/region';
 
   const dispatch = createEventDispatcher<{
     select: { lat: number; lng: number; name: string };
@@ -21,14 +22,6 @@
   let debounceTimer: ReturnType<typeof setTimeout>;
   let inputElement: HTMLInputElement;
 
-  // DC area bounding box for Nominatim
-  const DC_BOUNDS = {
-    west: -77.2,
-    east: -76.9,
-    south: 38.8,
-    north: 39.0,
-  };
-
   async function search(searchQuery: string) {
     if (searchQuery.length < 3) {
       results = [];
@@ -43,7 +36,7 @@
         format: 'json',
         addressdetails: '1',
         limit: '8',
-        viewbox: `${DC_BOUNDS.west},${DC_BOUNDS.north},${DC_BOUNDS.east},${DC_BOUNDS.south}`,
+        viewbox: `${$selectedRegion.searchBounds.west},${$selectedRegion.searchBounds.north},${$selectedRegion.searchBounds.east},${$selectedRegion.searchBounds.south}`,
         bounded: '1',
       });
 

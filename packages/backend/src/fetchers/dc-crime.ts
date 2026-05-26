@@ -102,6 +102,7 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
       },
       timestamp: reportDate,
       updatedAt: now,
+      regionId: 'dc',
       source: 'dc-crime',
       title: this.formatOffense(attrs.OFFENSE),
       description: this.buildDescription(attrs),

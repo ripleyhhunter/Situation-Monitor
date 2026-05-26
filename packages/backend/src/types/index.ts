@@ -1,3 +1,6 @@
+// Region identifier - must mirror packages/backend/src/regions/types.ts RegionId.
+export type RegionId = 'dc' | 'boise';
+
 // Incident types
 export type IncidentType =
   | 'traffic'
@@ -9,19 +12,25 @@ export type IncidentType =
   | 'hazard';
 
 export type DataSource =
+  // DC region
   | 'mdchart'
   | 'dc-crime'
   | 'dc-shotspotter'
   | 'dc-traffic'
   | 'alertdc'
-  | 'nws'
   | 'wmata'
+  | 'moco-crime'      // Montgomery County, MD
+  | 'pg-crime'        // Prince George's County, MD
+  // Boise region
+  | 'bpd-crime'       // Boise PD historical crime
+  | 'bpd-cfs'         // Boise PD calls for service (more real-time)
+  | 'itd-wzdx'        // Idaho Transportation Dept work zones
+  // Shared / cross-region
+  | 'nws'
   | 'airnow'
   | 'openmhz'
   | 'pulsepoint'
-  | 'scanner'
-  | 'moco-crime'      // Montgomery County, MD
-  | 'pg-crime';       // Prince George's County, MD
+  | 'scanner';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 
@@ -34,6 +43,7 @@ export interface Location {
 
 export interface Incident {
   id: string;
+  regionId: RegionId;
   type: IncidentType;
   severity: 1 | 2 | 3 | 4 | 5;
   location: Location;
@@ -52,6 +62,7 @@ export type CameraSource = 'mdchart' | 'dc' | 'vdot' | 'landmark';
 
 export interface Camera {
   id: string;
+  regionId: RegionId;
   name: string;
   location: {
     lat: number;
@@ -69,6 +80,7 @@ export type WeatherUrgency = 'immediate' | 'expected' | 'future' | 'past' | 'unk
 
 export interface WeatherAlert {
   id: string;
+  regionId: RegionId;
   event: string;
   severity: WeatherSeverity;
   urgency: WeatherUrgency;
@@ -101,6 +113,7 @@ export interface TrainPosition {
 
 // Air Quality types
 export interface AirQuality {
+  regionId: RegionId;
   aqi: number;
   category: string;
   primaryPollutant: string;
@@ -127,6 +140,7 @@ export interface AircraftMetadata {
 
 export interface Aircraft {
   id: string;
+  regionId: RegionId;
   icao24: string;
   callsign: string;
   location: {
@@ -150,6 +164,7 @@ export interface Aircraft {
 
 // Current Weather types
 export interface CurrentWeather {
+  regionId: RegionId;
   temperature: number;
   feelsLike: number;
   humidity: number;
@@ -161,11 +176,25 @@ export interface CurrentWeather {
 }
 
 // News types
-export type NewsSource = 'wtop' | 'dcist' | 'nbc4' | 'wusa9' | 'fox5' | 'washpost';
+export type NewsSource =
+  // DC
+  | 'wtop'
+  | 'dcist'
+  | 'nbc4'
+  | 'wusa9'
+  | 'fox5'
+  | 'washpost'
+  // Boise
+  | 'ktvb'
+  | 'boisedev'
+  | 'idaho-capital-sun'
+  | 'idaho-statesman'
+  | 'idaho-press';
 export type NewsPriority = 'breaking' | 'high' | 'normal';
 
 export interface NewsItem {
   id: string;
+  regionId: RegionId;
   title: string;
   description: string;
   link: string;

@@ -134,6 +134,7 @@ export class WMATAFetcher extends BaseFetcher<Incident> {
       },
       timestamp: incident.DateUpdated || now,
       updatedAt: now,
+      regionId: 'dc',
       source: 'wmata',
       title: this.buildTitle(incident, lines),
       description: incident.Description,

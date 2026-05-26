@@ -84,6 +84,7 @@ export class OpenMHzFetcher extends BaseFetcher<Incident> {
       },
       timestamp: call.time || now,
       updatedAt: now,
+      regionId: 'dc',
       source: 'openmhz',
       title: `DCFD: ${call.talkgroupAlpha || tgInfo.name}`,
       description: this.buildDescription(call),

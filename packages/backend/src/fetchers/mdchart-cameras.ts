@@ -60,6 +60,7 @@ export class MDChartCamerasFetcher extends BaseFetcher<Camera> {
         lat: cam.lat,
         lng: cam.lon,
       },
+      regionId: 'dc',
       source: 'mdchart',
       streamUrl: cam.publicVideoURL,
       imageUrl: this.buildImageUrl(cam.id),

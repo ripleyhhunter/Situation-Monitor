@@ -1,16 +1,22 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { mapState, userLocation, setMapBounds, DC_CENTER, DEFAULT_ZOOM, centerOnDC, searchLocation } from '$stores/location';
+  import { mapState, userLocation, setMapBounds, searchLocation } from '$stores/location';
   import { filteredIncidents } from '$stores/filters';
   import { filteredCameraList, selectCamera } from '$stores/cameras';
   import { selectIncident, selectedIncident } from '$stores/incidents';
   import { filters } from '$stores/filters';
   import { activeWeatherAlerts } from '$stores/weather';
   import { aircraftList, selectAircraft, selectedAircraft } from '$stores/aircraft';
+  import { selectedRegion } from '$stores/region';
   import { getSeverityColor, getIncidentTypeColor } from '$utils/format';
   import { getAgeBasedOpacity, isFreshIncident } from '$utils/time';
   import type { Incident, Camera, WeatherAlert, Aircraft } from '$types';
+
+  // Recenter the map when the user picks a different region.
+  $: if (map && $selectedRegion) {
+    map.setView($selectedRegion.defaultCenter, $selectedRegion.defaultZoom);
+  }
 
   let mapContainer: HTMLDivElement;
   let map: L.Map | null = null;
@@ -41,10 +47,10 @@
       const MarkerClusterGroup = markerClusterModule.MarkerClusterGroup || (markerClusterModule as any).default?.MarkerClusterGroup;
       console.log('MapContainer: MarkerCluster imported', MarkerClusterGroup);
 
-      // Initialize map
+      // Initialize map at the current region's center.
       map = L.map(mapContainer, {
-        center: DC_CENTER,
-        zoom: DEFAULT_ZOOM,
+        center: $selectedRegion.defaultCenter,
+        zoom: $selectedRegion.defaultZoom,
         zoomControl: true,
         attributionControl: true,
       });
@@ -151,25 +157,24 @@
       });
       new locationControl({ position: 'bottomright' }).addTo(map);
 
-      // Add DC center control
-      const dcControl = L.Control.extend({
+      // Add "center on region" control — label updates per region.
+      const regionControl = L.Control.extend({
         onAdd: function() {
-          const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+          const div = L!.DomUtil.create('div', 'leaflet-bar leaflet-control');
           div.innerHTML = `
-            <a href="#" title="Center on DC" style="display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: white; border-radius: 4px; font-weight: bold; font-size: 10px;">
-              DC
+            <a href="#" title="Center on ${$selectedRegion.label}" style="display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: white; border-radius: 4px; font-weight: bold; font-size: 10px;">
+              ${$selectedRegion.label.slice(0, 5)}
             </a>
           `;
-          L.DomEvent.on(div, 'click', function(e: any) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            centerOnDC();
-            map?.setView(DC_CENTER, DEFAULT_ZOOM);
+          L!.DomEvent.on(div, 'click', function(e: any) {
+            L!.DomEvent.stopPropagation(e);
+            L!.DomEvent.preventDefault(e);
+            map?.setView($selectedRegion.defaultCenter, $selectedRegion.defaultZoom);
           });
           return div;
         }
       });
-      new dcControl({ position: 'bottomright' }).addTo(map);
+      new regionControl({ position: 'bottomright' }).addTo(map);
 
       console.log('MapContainer: Initialization complete!');
     } catch (error) {

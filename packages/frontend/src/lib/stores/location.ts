@@ -1,16 +1,21 @@
 import { writable, derived } from 'svelte/store';
 import type { MapState } from '$types';
+import { REGION } from '$lib/config';
 
-// DC center coordinates
-export const DC_CENTER: [number, number] = [38.9072, -77.0369];
-export const DEFAULT_ZOOM = 12;
+// Default region center. Renamed from DC_CENTER (kept as alias) — value
+// comes from PUBLIC_REGION + PUBLIC_DEFAULT_LAT/LNG env vars at build time.
+export const DEFAULT_CENTER: [number, number] = REGION.defaultCenter;
+export const DEFAULT_ZOOM = REGION.defaultZoom;
+
+/** @deprecated Use DEFAULT_CENTER. */
+export const DC_CENTER = DEFAULT_CENTER;
 
 // User's current location (if available)
 export const userLocation = writable<[number, number] | null>(null);
 
 // Map state
 export const mapState = writable<MapState>({
-  center: DC_CENTER,
+  center: DEFAULT_CENTER,
   zoom: DEFAULT_ZOOM,
 });
 
@@ -79,11 +84,14 @@ export function centerOnUser(): void {
   })();
 }
 
-// Center map on DC
-export function centerOnDC(): void {
-  setMapCenter(DC_CENTER[0], DC_CENTER[1]);
+// Center map on the configured region default.
+export function centerOnRegion(): void {
+  setMapCenter(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
   setMapZoom(DEFAULT_ZOOM);
 }
+
+/** @deprecated Use centerOnRegion. */
+export const centerOnDC = centerOnRegion;
 
 // Dark mode preference
 const prefersDark = typeof window !== 'undefined'

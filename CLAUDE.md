@@ -4,49 +4,87 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Situation Monitor is a real-time situation monitoring dashboard for Washington D.C. and the DMV area. It aggregates:
-- **Fire/EMS incidents** (PulsePoint via headless browser)
-- **Traffic cameras** (MD CHART, DC DOT, curated landmarks)
-- **Crime data** (DC Open Data)
-- **ShotSpotter alerts** (gunshot detection)
-- **Weather** (NWS alerts + Open-Meteo current conditions)
-- **Transit** (WMATA Metro alerts)
-- **Air quality** (AirNow)
-- **Scanner feeds** (OpenMHz, Broadcastify links)
+Situation Monitor is a real-time situation monitoring dashboard. The codebase
+is **region-aware**: a single deployment is configured for one city/region via
+the `REGION` env var, which picks the matching `RegionPack` (see
+`packages/backend/src/regions/`). Currently supports:
+
+- **`REGION=dc`** — Washington, DC + DMV (PulsePoint EMS1205, MD CHART, DC Open Data, WMATA, AlertDC, ShotSpotter, OpenMHz DCFD)
+- **`REGION=boise`** — Boise / Ada County / Treasure Valley (PulsePoint EMS1169 ACCESS, BPD Crimes ArcGIS, ITD WZDx work zones, NWS Boise webcams)
+
+Shared (region-agnostic) fetchers: NWS weather alerts, Open-Meteo current
+conditions, AirNow, OpenSky aircraft, news RSS. Each reads its config (zones,
+timezone, bbox, feeds) from the active region pack.
+
+## Region Pack Architecture
+
+Each region exports a `RegionPack` from `regions/<id>.ts` (see
+`regions/types.ts` for the contract). A pack bundles:
+- **Static config**: `defaultCenter`, `timezone`, `openSkyBounds`, `nwsZones`, `sourcesWithCompleteListing`
+- **Fetcher arrays** grouped by scheduling profile: `cameraFetchers`, `trafficIncidentFetchers`, `crimeFetchers`, `shotspotterFetchers`, `emergencyAlertFetchers`
+- **Singleton-or-null fetchers**: `pulsePointFetcher`, `transitFetcher`, `scannerFetcher`, `twitterFetcher`
+- **News config**: RSS feeds + region-specific area keywords / location regex patterns
+
+`regions/index.ts` reads `process.env.REGION` and exports `activeRegion`. The
+aggregator iterates `activeRegion.<category>Fetchers` — it has zero
+hardcoded region knowledge.
+
+Region-tagged fetchers (PulsePoint, NewsFetcher) take config in their constructor;
+the regional pack file (`dc.ts` / `boise.ts`) builds the instance.
+`nws-weather.ts`, `current-weather.ts`, `opensky.ts` import `activeRegion`
+directly for zones / timezone / bbox.
 
 ## Key Limitations & Solutions
 
 | Limitation | Solution |
 |------------|----------|
 | DC Metro Police radios encrypted since 2011 | No police scanner data available |
-| DC doesn't publish Fire/EMS CAD data | **PulsePoint scraping** via Playwright |
-| Twitter API costs $100/month | Optional `TWITTER_BEARER_TOKEN` for @dcfireems |
-| Some APIs require keys | WMATA & AirNow work with free keys |
-
-**For end users without API access:** Recommend PulsePoint app (DC FEMS participates)
+| Boise PD on SWIRC P25 Phase II (some channels encrypted) | Same — link out to RadioReference / PulsePoint instead |
+| Neither city publishes raw Fire/EMS CAD | **PulsePoint scraping** via Playwright (DC: EMS1205, Boise: EMS1169 / ACCESS) |
+| Twitter API costs $100/month | Optional `TWITTER_BEARER_TOKEN` (DC `@dcfireems` only) |
+| Boise crime data is ~9 days delayed | BPD_Crimes_Public is historical; near-real-time `BPD_CallsForService` exists but not yet wired |
+| ITD camera API requires a key | Skipped — Boise's `cameraFetchers` only ships curated NWS Boise airport cams |
 
 ## Build & Development Commands
+
+This is a Turborepo + npm workspaces monorepo. Workspace package names: `@situation-monitor/frontend`, `@situation-monitor/backend`.
+
+**Windows shortcut:** `start-monitor.bat` at the repo root does `docker-compose up -d` + `npm run dev`, and runs `docker-compose down` on exit.
+
+**Note on `npm run clean`:** the per-workspace `clean` scripts use POSIX `rm -rf` and will fail in plain PowerShell — use Git Bash / WSL or delete `dist/`, `.svelte-kit/`, `build/`, `node_modules/` manually.
 
 ```bash
 # From repo root
 npm install              # Install all dependencies
-npm run dev              # Start frontend + backend with hot-reload
+npm run dev              # Start frontend + backend with hot-reload (via turbo)
 npm run docker:up        # Start Redis (required for caching)
 npm run docker:down      # Stop Redis
-npm run build            # Production build
-npm run test             # Run tests
-npm run lint             # Lint code
+npm run build            # Production build (both workspaces)
+npm run test             # Run tests (both workspaces)
+npm run lint             # Lint both workspaces
+
+# Scope a command to one workspace from the repo root
+npm run dev   --workspace=@situation-monitor/backend
+npm run build --workspace=@situation-monitor/frontend
 
 # Backend only (from packages/backend)
-npm run dev              # Start with hot-reload
-npm run build            # Compile TypeScript
-npm run start            # Run production build
+npm run dev              # tsx watch src/index.ts
+npm run build            # Compile TypeScript -> dist/
+npm run start            # Run production build (node dist/index.js)
+npm run test             # vitest
+
+# Run a single backend test
+cd packages/backend
+npx vitest run src/fetchers/pulsepoint.test.ts        # one file
+npx vitest run -t "should complete full PulsePoint"   # by test name (substring match)
+npx vitest                                            # watch mode
 
 # Frontend only (from packages/frontend)
-npm run dev              # Start Vite dev server
-npm run build            # Build for production
+npm run dev              # Vite dev server (port 5173, proxies /api -> :3000)
+npm run build            # Static build to build/
 npm run preview          # Preview production build
-npm run check            # TypeScript/Svelte check
+npm run check            # svelte-check (types + Svelte template checks)
+npm run lint             # eslint
 ```
 
 ## Architecture
@@ -69,7 +107,9 @@ External APIs → Fetchers (node-cron scheduled) → Normalizers → Redis Cache
 | `src/services/scheduler.ts` | Cron-based job scheduling |
 | `src/services/sse.ts` | Server-Sent Events broadcasting |
 | `src/services/database.ts` | SQLite persistence layer |
-| `src/fetchers/*.ts` | Individual API integrations (16 total) |
+| `src/fetchers/*.ts` | Individual API integrations (19 registered in `aggregator.ts`) |
+| `src/routes/*.ts` | Express route handlers (health, incidents, cameras, weather, aqi, events) |
+| `src/middleware/cors.ts` | Production CORS allowlist; dev is wide-open |
 
 **Frontend:**
 | File | Purpose |
@@ -80,15 +120,19 @@ External APIs → Fetchers (node-cron scheduled) → Normalizers → Redis Cache
 | `src/lib/components/ui/Header.svelte` | Header with weather, metro delays, AQI |
 | `src/lib/components/ui/SearchBar.svelte` | Address search with Nominatim geocoding |
 
-### All Data Fetchers (16)
+### All Data Fetchers
+
+Authoritative list: imports at the top of `packages/backend/src/services/aggregator.ts`. Currently 19 fetchers registered.
 
 | Fetcher | Source | Type | Interval | Notes |
 |---------|--------|------|----------|-------|
-| `pulsepoint.ts` | PulsePoint | Fire/EMS incidents | 2 min | Playwright headless browser |
+| `pulsepoint.ts` | PulsePoint | Fire/EMS incidents | 2 min | Playwright headless browser; only runs when SSE clients connected |
 | `mdchart-cameras.ts` | MD CHART | Traffic cameras | 5 min | Maryland highways |
 | `mdchart-incidents.ts` | MD CHART | Traffic incidents | 1 min | Crashes, closures |
 | `dc-cameras.ts` | DC Open Data | Traffic cameras | 5 min | DC street cameras |
 | `dc-crime.ts` | DC Open Data | Crime reports | 15 min | ArcGIS REST |
+| `moco-crime.ts` | Montgomery County | Crime reports | 15 min | Regional expansion |
+| `pg-crime.ts` | Prince George's County | Crime reports | 15 min | Regional expansion |
 | `dc-shotspotter.ts` | DC Open Data | Gunshot alerts | 5 min | ShotSpotter data |
 | `dc-traffic.ts` | DC HSEMA | Traffic incidents | 1 min | DC-specific incidents |
 | `alertdc.ts` | AlertDC | Major emergencies | 2 min | Fires, hazmat, etc. |
@@ -99,6 +143,10 @@ External APIs → Fetchers (node-cron scheduled) → Normalizers → Redis Cache
 | `openmhz.ts` | OpenMHz | Scanner calls | 5 min | Archived transmissions |
 | `dcfireems-twitter.ts` | Twitter/X | Fire/EMS tweets | 2 min | Optional, $100/mo API |
 | `landmark-webcams.ts` | Multiple | Curated webcams | 5 min | 23 cameras (Senate, NPS, FOX5, etc.) |
+| `opensky.ts` | OpenSky Network | Aircraft positions | varies | OAuth2 (`OPENSKY_CLIENT_ID`/`SECRET`); gated by per-client `wantsAircraft` preference |
+| `news.ts` | RSS feeds | News items | varies | rss-parser |
+
+The frontend SSE client handles event types `incident:new/update/clear`, `camera:update`, `weather:alert/clear/current`, `aqi:update`, `aircraft:update`, `news:update`, plus `connected`/`heartbeat`. See `packages/frontend/src/lib/services/sse.ts`.
 
 ### Camera Sources (landmark-webcams.ts)
 
@@ -131,11 +179,36 @@ REDIS_URL=redis://localhost:6379
 WMATA_API_KEY=xxx         # developer.wmata.com (free)
 AIRNOW_API_KEY=xxx        # airnowapi.org (free)
 TWITTER_BEARER_TOKEN=xxx  # developer.twitter.com ($100/mo)
+OPENSKY_CLIENT_ID=xxx     # opensky-network.org OAuth2 (4000 credits/day free)
+OPENSKY_CLIENT_SECRET=xxx
 
 # Defaults
 PUBLIC_DEFAULT_LAT=38.9072
 PUBLIC_DEFAULT_LNG=-77.0369
+
+# Frontend -> backend wiring
+PUBLIC_API_URL=           # Empty = same-origin. Set for cross-origin (e.g. GitHub Pages -> http://localhost:3000)
+
+# Backend CORS
+CORS_ORIGINS=             # Comma-separated. Only consulted when NODE_ENV=production.
+                          # In dev, CORS is wide-open ('*'). See packages/backend/src/middleware/cors.ts.
 ```
+
+### Frontend ↔ Backend Wiring
+- In dev: Vite proxies `/api/*` to `http://localhost:3000` (see `vite.config.ts`), so `PUBLIC_API_URL` can be empty.
+- In production builds: the SSE client reads `import.meta.env.PUBLIC_API_URL` and prefixes every API call with it (`packages/frontend/src/lib/services/sse.ts`). Empty = same-origin.
+- Backend CORS in production reads `CORS_ORIGINS` (comma-separated); if unset it falls back to `http://localhost:5173,http://localhost:4173`.
+
+### GitHub Pages Deployment
+The frontend is configured to deploy as a static SPA to GitHub Pages via `.github/workflows/deploy.yml` on push to `master`.
+
+- Adapter: `@sveltejs/adapter-static` with `fallback: 'index.html'` (SPA mode).
+- Root layout (`src/routes/+layout.ts`): `prerender = true`, `ssr = false`.
+- Build-time env vars used by the workflow:
+  - `BASE_PATH=/Situation-Monitor` — sets SvelteKit `paths.base` so asset URLs are correct under `/<repo>/`. Empty in dev.
+  - `PUBLIC_API_URL=http://localhost:3000` — the deployed site only works while the backend is running locally; browsers exempt `http://localhost` from mixed-content blocking.
+- One-time setup: repo Settings → Pages → Source = "GitHub Actions".
+- Deployed URL: `https://<owner>.github.io/Situation-Monitor/`.
 
 ## Key Patterns
 
@@ -178,26 +251,8 @@ The PulsePoint fetcher uses Playwright to:
 
 **Resource optimization**: Only runs when SSE clients are connected (`sse.getClientCount() > 0`)
 
-## Common Tasks
-
-### Update Landmark Webcams
-Edit `packages/backend/src/fetchers/landmark-webcams.ts`:
-- Add new entries to `LANDMARK_WEBCAMS` array
-- Include: id, name, lat/lng, type, pageUrl, description
-- For YouTube: add `youtubeId` for embedding
-
-### Add New Incident Type
-1. Add to `IncidentType` union in both `packages/backend/src/types/index.ts` and `packages/frontend/src/lib/types/index.ts`
-2. Add color/name mapping in `packages/frontend/src/lib/utils/format.ts`
-3. Add to filter defaults in `packages/frontend/src/lib/stores/filters.ts`
-4. Add checkbox in `FilterPanel.svelte`
-
-### Debug Fetcher Issues
-```bash
-# Check fetcher logs
-npm run dev  # Watch for fetcher log output
-
-# Test specific fetcher
-cd packages/backend
-npx tsx src/fetchers/pulsepoint.ts  # Direct execution (if exported correctly)
-```
+### Adding a New Incident Type
+The `IncidentType` union is duplicated on both sides — keep them in sync:
+1. `packages/backend/src/types/index.ts` and `packages/frontend/src/lib/types/index.ts`
+2. Color/name mapping in `packages/frontend/src/lib/utils/format.ts`
+3. Filter defaults in `packages/frontend/src/lib/stores/filters.ts` + checkbox in `FilterPanel.svelte`

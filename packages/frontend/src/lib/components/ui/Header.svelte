@@ -6,7 +6,15 @@
   import { incidentCounts, metroDelays } from '$stores/incidents';
   import { incidents24hCount } from '$stores/filters';
   import { formatRelativeTime } from '$utils/time';
+  import { ALL_REGIONS } from '$lib/config';
+  import { selectedRegionId, selectedRegion } from '$stores/region';
+  import type { RegionId } from '$types';
   import SearchBar from './SearchBar.svelte';
+
+  function handleRegionChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    selectedRegionId.set(target.value as RegionId);
+  }
 
   export let showScanner = false;
 
@@ -61,7 +69,16 @@
         <h1 class="text-lg font-semibold text-gray-900 dark:text-white hidden sm:block">
           Situation Monitor
         </h1>
-        <span class="text-xs text-gray-500 dark:text-gray-400 hidden md:block">DC</span>
+        <select
+          aria-label="Region"
+          value={$selectedRegionId}
+          on:change={handleRegionChange}
+          class="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 hidden md:inline-block"
+        >
+          {#each ALL_REGIONS as r}
+            <option value={r.id}>{r.label}</option>
+          {/each}
+        </select>
       </div>
 
       <!-- Search Bar -->

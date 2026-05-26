@@ -1,7 +1,8 @@
 import { writable, derived } from 'svelte/store';
 import type { Incident, IncidentType } from '$types';
+import { selectedRegionId } from '$stores/region';
 
-// Store for all incidents
+// Store for all incidents across every region.
 export const incidents = writable<Map<string, Incident>>(new Map());
 
 // Add or update an incident
@@ -36,31 +37,38 @@ export function clearAllIncidents(): void {
   incidents.set(new Map());
 }
 
-// Derived store for active incidents only
-export const activeIncidents = derived(incidents, ($incidents) =>
-  Array.from($incidents.values()).filter((i) => i.status === 'active')
+// Derived store for active incidents in the currently selected region.
+export const activeIncidents = derived(
+  [incidents, selectedRegionId],
+  ([$incidents, $regionId]) =>
+    Array.from($incidents.values()).filter(
+      (i) => i.status === 'active' && i.regionId === $regionId,
+    ),
 );
 
-// Derived store for incidents by type
-export const incidentsByType = derived(incidents, ($incidents) => {
-  const byType: Record<IncidentType, Incident[]> = {
-    traffic: [],
-    crime: [],
-    fire: [],
-    weather: [],
-    transit: [],
-    gunshot: [],
-    hazard: [],
-  };
+// Derived store for incidents by type (selected region only).
+export const incidentsByType = derived(
+  [incidents, selectedRegionId],
+  ([$incidents, $regionId]) => {
+    const byType: Record<IncidentType, Incident[]> = {
+      traffic: [],
+      crime: [],
+      fire: [],
+      weather: [],
+      transit: [],
+      gunshot: [],
+      hazard: [],
+    };
 
-  for (const incident of $incidents.values()) {
-    if (incident.status === 'active') {
-      byType[incident.type].push(incident);
+    for (const incident of $incidents.values()) {
+      if (incident.status === 'active' && incident.regionId === $regionId) {
+        byType[incident.type].push(incident);
+      }
     }
-  }
 
-  return byType;
-});
+    return byType;
+  },
+);
 
 // Derived store for incident counts by type
 export const incidentCounts = derived(incidentsByType, ($byType) => {

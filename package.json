@@ -11,7 +11,9 @@
     "test": "turbo run test",
     "clean": "turbo run clean && rm -rf node_modules",
     "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down",
+    "region:dc": "node scripts/set-region.mjs dc",
+    "region:boise": "node scripts/set-region.mjs boise"
   },
   "workspaces": [
     "packages/*"

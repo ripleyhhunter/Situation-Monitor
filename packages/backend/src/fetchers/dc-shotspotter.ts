@@ -79,6 +79,7 @@ export class DCShotSpotterFetcher extends BaseFetcher<Incident> {
       },
       timestamp,
       updatedAt: now,
+      regionId: 'dc',
       source: 'dc-shotspotter',
       title: this.buildTitle(type, rounds),
       description: this.buildDescription(type, rounds, timestamp),

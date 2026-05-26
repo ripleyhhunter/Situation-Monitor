@@ -1,35 +1,43 @@
 import { writable, derived } from 'svelte/store';
-import type { Aircraft } from '$types';
+import type { Aircraft, RegionId } from '$types';
+import { selectedRegionId } from './region';
 
-// Store for all aircraft
-export const aircraft = writable<Map<string, Aircraft>>(new Map());
+// Per-region aircraft maps. Each region's OpenSky bbox produces its own snapshot.
+export const aircraftByRegion = writable<Record<RegionId, Map<string, Aircraft>>>({
+  dc: new Map(),
+  boise: new Map(),
+});
 
-// Update all aircraft (replaces current data)
-export function updateAircraft(newAircraft: Aircraft[]): void {
-  aircraft.set(new Map(newAircraft.map(a => [a.id, a])));
+/** Replace the aircraft list for one region (called from SSE on each 'aircraft:update' tick). */
+export function updateAircraft(regionId: RegionId, newAircraft: Aircraft[]): void {
+  aircraftByRegion.update((byRegion) => ({
+    ...byRegion,
+    [regionId]: new Map(newAircraft.map((a) => [a.id, a])),
+  }));
 }
 
-// Clear all aircraft
 export function clearAircraft(): void {
-  aircraft.set(new Map());
+  aircraftByRegion.set({ dc: new Map(), boise: new Map() });
 }
 
-// Derived store for aircraft list
-export const aircraftList = derived(aircraft, ($aircraft) => 
-  Array.from($aircraft.values())
+/** Map of aircraft for the selected region only. */
+export const aircraft = derived(
+  [aircraftByRegion, selectedRegionId],
+  ([$byRegion, $regionId]) => $byRegion[$regionId] || new Map<string, Aircraft>(),
 );
 
-// Derived store for aircraft in flight only (not on ground)
-export const aircraftInFlight = derived(aircraftList, ($list) => 
-  $list.filter(a => !a.onGround)
+export const aircraftList = derived(aircraft, ($aircraft) =>
+  Array.from($aircraft.values()),
 );
 
-// Derived store for emergency aircraft
+export const aircraftInFlight = derived(aircraftList, ($list) =>
+  $list.filter((a) => !a.onGround),
+);
+
 export const emergencyAircraft = derived(aircraftList, ($list) =>
-  $list.filter(a => a.isEmergency)
+  $list.filter((a) => a.isEmergency),
 );
 
-// Derived store for aircraft counts by category
 export const aircraftCounts = derived(aircraftList, ($list) => {
   const counts = {
     total: $list.length,
@@ -43,11 +51,8 @@ export const aircraftCounts = derived(aircraftList, ($list) => {
   };
 
   for (const a of $list) {
-    if (a.onGround) {
-      counts.onGround++;
-    } else {
-      counts.inFlight++;
-    }
+    if (a.onGround) counts.onGround++;
+    else counts.inFlight++;
 
     if (a.category === 'commercial') counts.commercial++;
     else if (a.category === 'military') counts.military++;
@@ -60,7 +65,6 @@ export const aircraftCounts = derived(aircraftList, ($list) => {
   return counts;
 });
 
-// Selected aircraft for detail view
 export const selectedAircraft = writable<Aircraft | null>(null);
 
 export function selectAircraft(aircraft: Aircraft | null): void {
