@@ -33,6 +33,11 @@ jobs:
           NODE_ENV: production
           BASE_PATH: /Situation-Monitor
           PUBLIC_API_URL: https://meters-chief-alien-experiences.trycloudflare.com
+          # Multi-region: both DC and Boise data are served by the backend.
+          # PUBLIC_REGION is only the *initial* dropdown selection — users can
+          # switch in the UI and the choice persists in localStorage.
+          PUBLIC_REGION: ${{ vars.PUBLIC_REGION || 'boise' }}
+          PUBLIC_REGION_LABEL: ${{ vars.PUBLIC_REGION_LABEL || '' }}
         run: npm run build --workspace=@situation-monitor/frontend
 
       - uses: actions/upload-pages-artifact@v3
