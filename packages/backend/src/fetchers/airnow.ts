@@ -114,9 +114,23 @@ export class AirNowFetcher extends BaseFetcher<AirQuality> {
   }
 
   private buildTimestamp(obs: AirNowObservation): string {
-    const date = new Date(obs.DateObserved);
-    date.setHours(obs.HourObserved);
-    return date.toISOString();
+    // DateObserved is a bare date ("2026-07-03", sometimes with a trailing
+    // space) and HourObserved is in the observation site's LOCAL zone,
+    // reported via LocalTimeZone as a fixed abbreviation. The old
+    // host-local setHours() skewed the timestamp by the server-vs-site
+    // offset and could land on the wrong calendar day.
+    const TZ_OFFSET_HOURS: Record<string, number> = {
+      EST: -5, EDT: -4, CST: -6, CDT: -5, MST: -7, MDT: -6,
+      PST: -8, PDT: -7, AKST: -9, AKDT: -8, HST: -10,
+    };
+
+    const m = (obs.DateObserved || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return new Date().toISOString();
+
+    const offset = TZ_OFFSET_HOURS[(obs.LocalTimeZone || '').trim().toUpperCase()];
+    // Unknown zone: treat as UTC — stable, unlike host-local interpretation.
+    const hourUtc = offset !== undefined ? obs.HourObserved - offset : obs.HourObserved || 0;
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], hourUtc)).toISOString();
   }
 
   /**
