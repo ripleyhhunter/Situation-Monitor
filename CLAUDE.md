@@ -104,6 +104,7 @@ npm run build            # Static build to build/
 npm run preview          # Preview production build
 npm run check            # svelte-check (types + Svelte template checks)
 npm run lint             # eslint
+npm run test             # vitest run (stores/utils unit tests)
 ```
 
 ## Architecture

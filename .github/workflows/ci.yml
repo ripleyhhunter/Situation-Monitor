@@ -21,8 +21,8 @@ jobs:
       - name: Backend type-check & build
         run: npm run build --workspace=@situation-monitor/backend
 
-      - name: Backend tests
-        run: npm run test --workspace=@situation-monitor/backend
+      - name: Tests (both workspaces)
+        run: npm run test
 
       - name: Lint (both workspaces)
         run: npm run lint
