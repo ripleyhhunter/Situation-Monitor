@@ -497,12 +497,17 @@ class AggregatorService {
     const now = Date.now();
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    const SIXTY_DAYS = 60 * 24 * 60 * 60 * 1000;
 
+    // Windows must match the fetchers' own fetch-side filters — a source
+    // whose feed returns records older than its window here would clear and
+    // re-add them every cycle.
     const expirationMs: Record<string, number> = {
       'dc-crime': THIRTY_DAYS,
       'moco-crime': THIRTY_DAYS,
       'pg-crime': THIRTY_DAYS,
-      'bpd-crime': THIRTY_DAYS,
+      'bpd-crime': SIXTY_DAYS, // BPD feed lags ~1 month behind real time
+      'dc-shotspotter': THIRTY_DAYS,
       'default': TWENTY_FOUR_HOURS,
     };
 
@@ -515,6 +520,13 @@ class AggregatorService {
     let deletedCount = 0;
 
     for (const [regionId, state] of this.state) {
+      // Complete-snapshot sources are governed by feed presence (absence
+      // implies cleared, handled in processIncidents) — age-sweeping them
+      // just makes legitimately long-running items (work zones) blink.
+      const completeListing = new Set(
+        allRegions.find(r => r.id === regionId)?.sourcesWithCompleteListing ?? [],
+      );
+
       for (const [id, incident] of state.incidents) {
         if (incident.status !== 'active') {
           const clearedAge = now - new Date(incident.updatedAt).getTime();
@@ -526,6 +538,8 @@ class AggregatorService {
           }
           continue;
         }
+
+        if (completeListing.has(incident.source)) continue;
 
         const incidentAge = now - new Date(incident.timestamp).getTime();
         const maxAge = expirationMs[incident.source] || expirationMs['default'];

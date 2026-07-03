@@ -47,8 +47,15 @@ export class DCShotSpotterFetcher extends BaseFetcher<Incident> {
         return [];
       }
 
+      // Only return detections inside the aggregator's retention window for
+      // this source (30 days) — older rows would be age-cleared every sweep
+      // and re-added every poll, blinking the layer. If the upstream feed is
+      // stale (it has been discontinued before), the layer is honestly empty.
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
       return response.features
         .filter((f) => f.attributes.LATITUDE && f.attributes.LONGITUDE)
+        .filter((f) => (f.attributes.DATETIME || 0) >= cutoff)
         .map((f) => this.normalizeGunshot(f));
     } catch (error) {
       logger.error('Failed to fetch ShotSpotter data', { error });
@@ -58,12 +65,11 @@ export class DCShotSpotterFetcher extends BaseFetcher<Incident> {
 
   private normalizeGunshot(feature: ShotSpotterFeature): Incident {
     const attrs = feature.attributes;
-    const now = new Date().toISOString();
 
     // Parse datetime (epoch milliseconds)
     const timestamp = attrs.DATETIME
       ? new Date(attrs.DATETIME).toISOString()
-      : now;
+      : new Date().toISOString();
 
     // Extract round count from type string (e.g., "Multiple_Gunshots")
     const rounds = attrs.TYPE?.toLowerCase().includes('multiple') ? 3 : 1;
@@ -78,7 +84,9 @@ export class DCShotSpotterFetcher extends BaseFetcher<Incident> {
         lng: attrs.LONGITUDE,
       },
       timestamp,
-      updatedAt: now,
+      // Stable across polls (detections are immutable) so the aggregator's
+      // updatedAt diff doesn't resurrect cleared records or re-broadcast.
+      updatedAt: timestamp,
       regionId: 'dc',
       source: 'dc-shotspotter',
       title: this.buildTitle(type, rounds),

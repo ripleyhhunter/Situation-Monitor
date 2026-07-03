@@ -82,8 +82,15 @@ export class BPDCrimeFetcher extends BaseFetcher<Incident> {
         return [];
       }
 
+      // Only return records inside the aggregator's retention window for
+      // this source (60 days) — older rows would be age-cleared every sweep
+      // and re-added every poll, blinking the whole layer. The feed lags
+      // ~1 month behind real time, so 30 days would often be empty.
+      const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+
       return response.features
         .filter(f => f.geometry && typeof f.geometry.x === 'number' && typeof f.geometry.y === 'number')
+        .filter(f => (f.attributes.OccurredDateTime || f.attributes.ReportedDate || 0) >= cutoff)
         .map(f => this.normalize(f));
     } catch (error) {
       logger.error('Failed to fetch BPD Crime data', { error });
@@ -93,8 +100,8 @@ export class BPDCrimeFetcher extends BaseFetcher<Incident> {
 
   private normalize(feature: BPDFeature): Incident {
     const a = feature.attributes;
-    const now = new Date().toISOString();
     const ts = a.OccurredDateTime || a.ReportedDate || Date.now();
+    const isoTs = new Date(ts).toISOString();
 
     return {
       id: `bpd-crime-${a.DRNumber || a.OBJECTID}`,
@@ -106,8 +113,10 @@ export class BPDCrimeFetcher extends BaseFetcher<Incident> {
         address: a.IncidentAddress,
         neighborhood: a.PatrolArea || a.District,
       },
-      timestamp: new Date(ts).toISOString(),
-      updatedAt: now,
+      timestamp: isoTs,
+      // Stable across polls (crime records are effectively immutable) so the
+      // aggregator's updatedAt diff doesn't re-broadcast ~2000 records per poll.
+      updatedAt: isoTs,
       regionId: 'boise',
       source: 'bpd-crime',
       title: this.titleCase(a.CrimeCodeDescription || a.IncidentType || 'Crime'),
