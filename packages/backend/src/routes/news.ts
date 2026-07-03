@@ -39,7 +39,8 @@ router.get('/related/:incidentId', (req, res) => {
     const relatedNews = aggregator.findRelatedNews(
       incident.title,
       incident.location.address,
-      incident.type
+      incident.type,
+      incident.regionId
     );
     
     res.json({

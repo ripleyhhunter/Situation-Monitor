@@ -16,9 +16,13 @@ const defaultFilters: FilterState = {
   timeRange: '24h',
 };
 
-// Map data sources to jurisdictions
-function getJurisdictionForSource(source: DataSource): Jurisdiction | null {
-  switch (source) {
+// Map an incident to a jurisdiction. Jurisdictions (DC/MoCo/PG) are a
+// DC-region concept — incidents from other regions are never filtered by
+// them (a Boise PulsePoint incident is not "Washington, DC").
+function getJurisdictionForIncident(incident: Incident): Jurisdiction | null {
+  if (incident.regionId !== 'dc') return null;
+
+  switch (incident.source as DataSource) {
     case 'dc-crime':
     case 'dc-shotspotter':
     case 'dc-traffic':
@@ -146,7 +150,7 @@ export const filteredIncidents = derived(
       }
 
       // Check jurisdiction (only for sources that have a jurisdiction)
-      const jurisdiction = getJurisdictionForSource(incident.source);
+      const jurisdiction = getJurisdictionForIncident(incident);
       if (jurisdiction !== null && !$filters.jurisdictions.has(jurisdiction)) {
         return false;
       }
