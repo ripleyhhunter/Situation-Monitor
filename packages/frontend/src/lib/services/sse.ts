@@ -1,8 +1,14 @@
 import { writable } from 'svelte/store';
 import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId } from '$types';
-import { upsertIncident, clearIncident } from '$stores/incidents';
+import { upsertIncident, clearIncident, clearAllIncidents } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
-import { upsertWeatherAlert, removeWeatherAlert, setAirQuality, setCurrentWeather } from '$stores/weather';
+import {
+  upsertWeatherAlert,
+  removeWeatherAlert,
+  clearAllWeatherAlerts,
+  setAirQuality,
+  setCurrentWeather,
+} from '$stores/weather';
 import { updateAircraft } from '$stores/aircraft';
 import { updateNews } from '$stores/news';
 
@@ -20,16 +26,17 @@ export const clientId = writable<string | null>(null);
 class SSEService {
   private eventSource: EventSource | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionallyClosed = false;
   private currentClientId: string | null = null;
 
   constructor() {
     // Auto-reconnect on page visibility change
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && !this.eventSource) {
+        if (document.visibilityState === 'visible' && !this.eventSource && !this.intentionallyClosed) {
           this.connect();
         }
       });
@@ -41,6 +48,7 @@ class SSEService {
       return; // Already connected
     }
 
+    this.intentionallyClosed = false;
     connectionStatus.set('connecting');
 
     // Default to wanting aircraft - filter store will update preference after connection
@@ -64,6 +72,11 @@ class SSEService {
     this.eventSource.addEventListener('connected', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<{ clientId: string }>;
       console.log('SSE connected:', data);
+      // The server replays its full active snapshot right after 'connected'.
+      // Reset the snapshot-replayed stores so incidents/alerts cleared while
+      // we were disconnected don't linger as ghosts.
+      clearAllIncidents();
+      clearAllWeatherAlerts();
       this.currentClientId = data.data.clientId;
       clientId.set(data.data.clientId);
       lastEventTime.set(data.timestamp);
@@ -143,28 +156,39 @@ class SSEService {
 
     connectionStatus.set('disconnected');
 
-    // Attempt reconnection with exponential backoff
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = Math.min(
-        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-        this.maxReconnectDelay
-      );
+    if (this.intentionallyClosed) return;
 
-      console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    // A failing EventSource can emit multiple error events; without this
+    // guard each one would schedule its own retry timer and the timers
+    // stack geometrically.
+    if (this.reconnectTimer) return;
 
-      setTimeout(() => {
-        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-          this.connect();
-        }
-      }, delay);
-    } else {
-      console.error('Max reconnection attempts reached');
-      connectionStatus.set('error');
-    }
+    // Retry forever with capped exponential backoff — the backend (owner's
+    // machine) can be down for hours, and a permanently dead dashboard that
+    // needs a manual reload is worse than a 30s retry loop.
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, Math.min(this.reconnectAttempts - 1, 10)),
+      this.maxReconnectDelay
+    );
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        this.connect();
+      }
+      // If the tab is hidden, the visibilitychange handler reconnects on return.
+    }, delay);
   }
 
   disconnect(): void {
+    this.intentionallyClosed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -172,7 +196,6 @@ class SSEService {
     this.currentClientId = null;
     clientId.set(null);
     connectionStatus.set('disconnected');
-    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent auto-reconnect
   }
 
   isConnected(): boolean {
