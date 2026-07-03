@@ -21,13 +21,12 @@ export function removeIncident(id: string): void {
   });
 }
 
-// Clear an incident (mark as cleared)
+// Drop an incident when the server clears it. Nothing in the UI renders
+// non-active incidents, so keeping them would only grow the Map for the
+// lifetime of the tab.
 export function clearIncident(id: string): void {
   incidents.update((map) => {
-    const incident = map.get(id);
-    if (incident) {
-      map.set(id, { ...incident, status: 'cleared' });
-    }
+    map.delete(id);
     return new Map(map);
   });
 }

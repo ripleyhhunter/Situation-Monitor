@@ -147,7 +147,10 @@ class AggregatorService {
 
   private async persistIncidents(regionId: RegionId): Promise<void> {
     try {
-      const incidents = Array.from(this.getState(regionId).incidents.values());
+      // Only actives are ever restored on startup, so persisting cleared
+      // incidents would just grow the payload re-serialized on every change.
+      const incidents = Array.from(this.getState(regionId).incidents.values())
+        .filter(i => i.status === 'active');
       await cache.set(cacheKeyForRegion(regionId), incidents, INCIDENTS_CACHE_TTL);
     } catch (error) {
       logger.warn(`Failed to persist incidents to Redis for ${regionId}:`, { error });
@@ -503,12 +506,26 @@ class AggregatorService {
       'default': TWENTY_FOUR_HOURS,
     };
 
+    // Cleared incidents were already broadcast as removed and nothing serves
+    // them — drop them after a grace period so the Maps don't grow forever.
+    const CLEARED_RETENTION_MS = 60 * 60 * 1000;
+
     const changedRegions = new Set<RegionId>();
     let clearedCount = 0;
+    let deletedCount = 0;
 
     for (const [regionId, state] of this.state) {
       for (const [id, incident] of state.incidents) {
-        if (incident.status !== 'active') continue;
+        if (incident.status !== 'active') {
+          const clearedAge = now - new Date(incident.updatedAt).getTime();
+          if (clearedAge > CLEARED_RETENTION_MS) {
+            state.incidents.delete(id);
+            database.deleteIncident(id);
+            deletedCount++;
+            changedRegions.add(regionId);
+          }
+          continue;
+        }
 
         const incidentAge = now - new Date(incident.timestamp).getTime();
         const maxAge = expirationMs[incident.source] || expirationMs['default'];
@@ -524,8 +541,8 @@ class AggregatorService {
       }
     }
 
-    if (clearedCount > 0) {
-      logger.info(`Cleaned up ${clearedCount} stale incidents across ${changedRegions.size} region(s)`);
+    if (changedRegions.size > 0) {
+      logger.info(`Cleanup: cleared ${clearedCount}, deleted ${deletedCount} incidents across ${changedRegions.size} region(s)`);
       for (const regionId of changedRegions) {
         this.persistIncidents(regionId).catch(() => {});
       }
