@@ -89,8 +89,9 @@
           alt={camera.name}
           class="w-full h-full object-contain"
           on:error={(e) => {
-            e.currentTarget.src = '';
-            e.currentTarget.alt = 'Camera feed unavailable';
+            const target = e.currentTarget as HTMLImageElement;
+            target.src = '';
+            target.alt = 'Camera feed unavailable';
           }}
         />
         <!-- Refresh hint -->

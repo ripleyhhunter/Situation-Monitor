@@ -12,6 +12,7 @@
   import { getSeverityColor, getIncidentTypeColor } from '$utils/format';
   import { getAgeBasedOpacity, isFreshIncident } from '$utils/time';
   import type { Incident, Camera, WeatherAlert, Aircraft } from '$types';
+  import type * as Leaflet from 'leaflet';
 
   // Recenter the map when the user picks a different region.
   $: if (map && $selectedRegion) {
@@ -19,15 +20,15 @@
   }
 
   let mapContainer: HTMLDivElement;
-  let map: L.Map | null = null;
+  let map: Leaflet.Map | null = null;
   let L: typeof import('leaflet') | null = null;
-  let incidentMarkers: L.MarkerClusterGroup | null = null;
-  let cameraMarkers: L.LayerGroup | null = null;
-  let aircraftMarkers: L.LayerGroup | null = null;
-  let userMarker: L.Marker | null = null;
-  let searchMarker: L.Marker | null = null;
-  let weatherLayers: L.LayerGroup | null = null;
-  let heatmapLayer: L.Layer | null = null;
+  let incidentMarkers: Leaflet.MarkerClusterGroup | null = null;
+  let cameraMarkers: Leaflet.LayerGroup | null = null;
+  let aircraftMarkers: Leaflet.LayerGroup | null = null;
+  let userMarker: Leaflet.Marker | null = null;
+  let searchMarker: Leaflet.Marker | null = null;
+  let weatherLayers: Leaflet.LayerGroup | null = null;
+  let heatmapLayer: Leaflet.Layer | null = null;
   let heatLayerLoaded = false;
 
   onMount(async () => {
@@ -44,7 +45,7 @@
       (window as any).L = L;
       
       const markerClusterModule = await import('leaflet.markercluster');
-      const MarkerClusterGroup = markerClusterModule.MarkerClusterGroup || (markerClusterModule as any).default?.MarkerClusterGroup;
+      const MarkerClusterGroup = (markerClusterModule as any).MarkerClusterGroup || (markerClusterModule as any).default?.MarkerClusterGroup;
       console.log('MapContainer: MarkerCluster imported', MarkerClusterGroup);
 
       // Initialize map at the current region's center.
@@ -89,7 +90,7 @@
               iconSize: L!.point(40, 40),
             });
           },
-        });
+        }) as Leaflet.MarkerClusterGroup;
         map.addLayer(incidentMarkers);
         console.log('MapContainer: Incident markers layer added');
       } else {
@@ -136,7 +137,7 @@
       // Add location control
       const locationControl = L.Control.extend({
         onAdd: function() {
-          const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+          const div = L!.DomUtil.create('div', 'leaflet-bar leaflet-control');
           div.innerHTML = `
             <a href="#" title="My Location" style="display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: white; border-radius: 4px;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -145,9 +146,9 @@
               </svg>
             </a>
           `;
-          L.DomEvent.on(div, 'click', function(e: any) {
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
+          L!.DomEvent.on(div, 'click', function(e: any) {
+            L!.DomEvent.stopPropagation(e);
+            L!.DomEvent.preventDefault(e);
             if ($userLocation) {
               map?.setView($userLocation, 15);
             }

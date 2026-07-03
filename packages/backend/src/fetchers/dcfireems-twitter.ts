@@ -273,7 +273,7 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
       title = title.substring(0, maxLength) + '...';
     }
     
-    return `DCFD: ${title}` || `DCFD: ${category}`;
+    return title ? `DCFD: ${title}` : `DCFD: ${category}`;
   }
 
   /**

@@ -44,11 +44,6 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
     // This endpoint has the full year of crime data
     // API docs: https://opendata.dc.gov/datasets/crime-incidents-in-2024
     
-    // Calculate date 1 year ago
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const dateStr = oneYearAgo.toISOString().split('T')[0];
-    
     // Try the ArcGIS REST API with the current year's crime layer
     // Layer numbers change yearly - try the general query endpoint
     const baseUrl =

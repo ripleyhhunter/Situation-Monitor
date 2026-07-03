@@ -1,5 +1,5 @@
 import { BaseFetcher } from './base.js';
-import type { Incident, TransitAlert, TrainPosition } from '../types/index.js';
+import type { Incident, TrainPosition } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 

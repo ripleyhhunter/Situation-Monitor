@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { Incident, WeatherAlert } from '$types';
 
 export type NotificationPermission = 'default' | 'granted' | 'denied';
@@ -48,8 +48,7 @@ export function checkNotificationPermission(): void {
  * Send a browser notification for an incident
  */
 export function notifyIncident(incident: Incident): void {
-  let settings: typeof notificationSettings extends { subscribe: (fn: (val: infer T) => void) => unknown } ? T : never;
-  notificationSettings.subscribe((s) => (settings = s))();
+  const settings = get(notificationSettings);
 
   if (!settings.enabled) return;
   if (settings.criticalOnly && incident.severity < 4) return;
@@ -80,8 +79,7 @@ export function notifyIncident(incident: Incident): void {
  * Send a browser notification for a weather alert
  */
 export function notifyWeatherAlert(alert: WeatherAlert): void {
-  let settings: typeof notificationSettings extends { subscribe: (fn: (val: infer T) => void) => unknown } ? T : never;
-  notificationSettings.subscribe((s) => (settings = s))();
+  const settings = get(notificationSettings);
 
   if (!settings.enabled) return;
 

@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable } from 'svelte/store';
 import type { MapState } from '$types';
 import { REGION } from '$lib/config';
 

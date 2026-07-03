@@ -1,4 +1,4 @@
-import { userLocation, setMapCenter } from '$stores/location';
+import { userLocation } from '$stores/location';
 
 export interface GeolocationResult {
   success: boolean;
