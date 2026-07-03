@@ -253,6 +253,7 @@
     updateAircraftMarkers(visibleAircraft);
   } else if (aircraftMarkers && !$filters.showAircraft) {
     aircraftMarkers.clearLayers();
+    aircraftMarkerById.clear();
   }
 
   // Center map when incident is selected
@@ -334,38 +335,99 @@
     }, 10000);
   }
 
-  function updateIncidentMarkers(incidents: Incident[]) {
-    if (!incidentMarkers || !L) return;
+  // Diff-based marker updates: rebuilding the whole cluster group on every
+  // SSE event re-clustered all markers (visible flicker, O(N) DOM churn per
+  // incoming incident, N² work during the connect snapshot burst).
+  const incidentMarkerById = new Map<string, Leaflet.Marker>();
+  const incidentMarkerState = new WeakMap<
+    Leaflet.Marker,
+    { html: string; lat: number; lng: number; incident: Incident }
+  >();
 
-    incidentMarkers.clearLayers();
+  function buildIncidentIconHtml(incident: Incident): { html: string; size: number } {
+    const color = getSeverityColor(incident.severity);
+    const opacity = getAgeBasedOpacity(incident.timestamp);
+    const isFresh = isFreshIncident(incident.timestamp);
 
-    for (const incident of incidents) {
-      const color = getSeverityColor(incident.severity);
-      const opacity = getAgeBasedOpacity(incident.timestamp);
-      const isFresh = isFreshIncident(incident.timestamp);
-      
-      // Fresh incidents get a larger size and pulse animation
-      const size = isFresh ? 28 : 24;
-      const pulseClass = isFresh ? 'pulse-fresh' : '';
-      
-      const icon = L.divIcon({
-        className: '',
-        html: `
-          <div class="incident-marker severity-${incident.severity} ${pulseClass}" 
+    // Fresh incidents get a larger size and pulse animation
+    const size = isFresh ? 28 : 24;
+    const pulseClass = isFresh ? 'pulse-fresh' : '';
+
+    const html = `
+          <div class="incident-marker severity-${incident.severity} ${pulseClass}"
                style="width: ${size}px; height: ${size}px; background-color: ${color}; opacity: ${opacity};">
             <svg viewBox="0 0 24 24" width="${size - 10}" height="${size - 10}" fill="white" style="margin: ${(size - (size - 10)) / 2}px;">
               ${getIncidentIcon(incident.type)}
             </svg>
           </div>
-        `,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2],
-      });
+        `;
+    return { html, size };
+  }
 
-      const marker = L.marker([incident.location.lat, incident.location.lng], { icon });
-      marker.on('click', () => selectIncident(incident));
-      incidentMarkers.addLayer(marker);
+  function updateIncidentMarkers(incidents: Incident[]) {
+    if (!incidentMarkers || !L) return;
+
+    const seen = new Set<string>();
+    const toAdd: Leaflet.Marker[] = [];
+
+    for (const incident of incidents) {
+      seen.add(incident.id);
+      const { html, size } = buildIncidentIconHtml(incident);
+      const existing = incidentMarkerById.get(incident.id);
+
+      if (existing) {
+        const state = incidentMarkerState.get(existing)!;
+        // Icon html is stable between age buckets, so setIcon only fires on
+        // real changes (severity, freshness, opacity bucket).
+        if (state.html !== html) {
+          existing.setIcon(L.divIcon({
+            className: '',
+            html,
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+          }));
+          state.html = html;
+        }
+        if (state.lat !== incident.location.lat || state.lng !== incident.location.lng) {
+          existing.setLatLng([incident.location.lat, incident.location.lng]);
+          state.lat = incident.location.lat;
+          state.lng = incident.location.lng;
+        }
+        state.incident = incident; // click handler reads the latest data
+      } else {
+        const icon = L.divIcon({
+          className: '',
+          html,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+        const marker = L.marker([incident.location.lat, incident.location.lng], { icon });
+        incidentMarkerState.set(marker, {
+          html,
+          lat: incident.location.lat,
+          lng: incident.location.lng,
+          incident,
+        });
+        marker.on('click', () => {
+          const state = incidentMarkerState.get(marker);
+          if (state) selectIncident(state.incident);
+        });
+        incidentMarkerById.set(incident.id, marker);
+        toAdd.push(marker);
+      }
     }
+
+    const toRemove: Leaflet.Marker[] = [];
+    for (const [id, marker] of incidentMarkerById) {
+      if (!seen.has(id)) {
+        toRemove.push(marker);
+        incidentMarkerById.delete(id);
+      }
+    }
+
+    // Batch cluster operations: one re-cluster per update, not per marker.
+    if (toRemove.length > 0) incidentMarkers.removeLayers(toRemove);
+    if (toAdd.length > 0) incidentMarkers.addLayers(toAdd);
   }
 
   function updateCameraMarkers(cameras: Camera[]) {
@@ -522,40 +584,41 @@
     return icons[type] || icons.hazard;
   }
 
-  function updateAircraftMarkers(aircraft: Aircraft[]) {
-    if (!aircraftMarkers || !L) return;
+  // Diff-based aircraft updates: the old clear-and-rebuild on every ~5s tick
+  // destroyed the marker an open popup was anchored to, force-closing it.
+  const aircraftMarkerById = new Map<string, Leaflet.Marker>();
+  const aircraftMarkerState = new WeakMap<
+    Leaflet.Marker,
+    { iconHtml: string; popup: string; plane: Aircraft }
+  >();
 
-    aircraftMarkers.clearLayers();
+  function buildAircraftIconHtml(plane: Aircraft): { html: string; size: number } {
+    const color = getAircraftColor(plane);
+    const isHelicopter = plane.category === 'helicopter';
+    // Larger sizes for better visibility
+    const size = plane.category === 'commercial' ? 40 : isHelicopter ? 38 : 34;
+    const opacity = plane.onGround ? 0.6 : 1;
 
-    for (const plane of aircraft) {
-      const color = getAircraftColor(plane);
-      const isHelicopter = plane.category === 'helicopter';
-      // Larger sizes for better visibility
-      const size = plane.category === 'commercial' ? 40 : isHelicopter ? 38 : 34;
-      const opacity = plane.onGround ? 0.6 : 1;
+    // Different SVG path for helicopters vs fixed-wing
+    // Helicopter: top-down view with rotor blades
+    const svgPath = isHelicopter
+      ? '<g><ellipse cx="12" cy="12" rx="4" ry="3"/><rect x="11" y="6" width="2" height="12" rx="1"/><rect x="4" y="11" width="16" height="2" rx="1"/><circle cx="12" cy="12" r="1.5"/><path d="M10 18l-2 3h8l-2-3h-4z"/></g>'
+      : '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>';
 
-      // Different SVG path for helicopters vs fixed-wing
-      // Helicopter: top-down view with rotor blades
-      const svgPath = isHelicopter
-        ? '<g><ellipse cx="12" cy="12" rx="4" ry="3"/><rect x="11" y="6" width="2" height="12" rx="1"/><rect x="4" y="11" width="16" height="2" rx="1"/><circle cx="12" cy="12" r="1.5"/><path d="M10 18l-2 3h8l-2-3h-4z"/></g>'
-        : '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>';
+    // Stroke color for outline effect (darker version of fill)
+    const strokeColor = plane.isEmergency ? '#b91c1c' : (plane.onGround ? '#6b7280' : '#1f2937');
+    const bgColor = plane.onGround ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.9)';
 
-      // Stroke color for outline effect (darker version of fill)
-      const strokeColor = plane.isEmergency ? '#b91c1c' : (plane.onGround ? '#6b7280' : '#1f2937');
-      const bgColor = plane.onGround ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.9)';
-
-      const icon = L.divIcon({
-        className: '',
-        html: `
+    const html = `
           <div class="aircraft-marker ${isHelicopter ? 'helicopter' : ''} ${plane.isEmergency ? 'emergency' : ''}"
                style="width: ${size}px; height: ${size}px; opacity: ${opacity}; transform: rotate(${plane.heading}deg);">
             <div style="
-              width: ${size - 4}px; 
-              height: ${size - 4}px; 
-              background: ${bgColor}; 
-              border-radius: 50%; 
-              display: flex; 
-              align-items: center; 
+              width: ${size - 4}px;
+              height: ${size - 4}px;
+              background: ${bgColor};
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
               justify-content: center;
               border: 2px solid ${strokeColor};
               box-shadow: 0 2px 6px rgba(0,0,0,0.4);
@@ -565,45 +628,43 @@
               </svg>
             </div>
           </div>
-        `,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2],
-      });
+        `;
+    return { html, size };
+  }
 
-      const marker = L.marker([plane.location.lat, plane.location.lng], { icon });
-      
-      // Build popup content with metadata
-      const altitudeStr = plane.location.altitude.toLocaleString();
-      const speedStr = plane.speed.toLocaleString();
-      const verticalIndicator = plane.verticalRate > 100 ? '↗️ Climbing' : 
-                                plane.verticalRate < -100 ? '↘️ Descending' : '→ Level';
-      
-      const categoryIcon = isHelicopter ? '🚁' : '✈️';
-      const meta = plane.metadata;
-      
-      // Build metadata section if available
-      let metadataHtml = '';
-      if (meta && Object.keys(meta).length > 0) {
-        const parts = [];
-        if (meta.manufacturer && meta.model) {
-          parts.push(`<div><strong>Aircraft:</strong> ${escapeHtml(meta.manufacturer)} ${escapeHtml(meta.model)}</div>`);
-        } else if (meta.model) {
-          parts.push(`<div><strong>Model:</strong> ${escapeHtml(meta.model)}</div>`);
-        }
-        if (meta.registration) {
-          parts.push(`<div><strong>Registration:</strong> ${escapeHtml(meta.registration)}</div>`);
-        }
-        if (meta.operator) {
-          parts.push(`<div><strong>Operator:</strong> ${escapeHtml(meta.operator)}</div>`);
-        } else if (meta.owner) {
-          parts.push(`<div><strong>Owner:</strong> ${escapeHtml(meta.owner)}</div>`);
-        }
-        if (parts.length > 0) {
-          metadataHtml = `<hr style="margin: 6px 0; border: none; border-top: 1px solid #eee;">${parts.join('')}`;
-        }
+  function buildAircraftPopupContent(plane: Aircraft): string {
+    const isHelicopter = plane.category === 'helicopter';
+    const altitudeStr = plane.location.altitude.toLocaleString();
+    const speedStr = plane.speed.toLocaleString();
+    const verticalIndicator = plane.verticalRate > 100 ? '↗️ Climbing' :
+                              plane.verticalRate < -100 ? '↘️ Descending' : '→ Level';
+
+    const categoryIcon = isHelicopter ? '🚁' : '✈️';
+    const meta = plane.metadata;
+
+    // Build metadata section if available
+    let metadataHtml = '';
+    if (meta && Object.keys(meta).length > 0) {
+      const parts = [];
+      if (meta.manufacturer && meta.model) {
+        parts.push(`<div><strong>Aircraft:</strong> ${escapeHtml(meta.manufacturer)} ${escapeHtml(meta.model)}</div>`);
+      } else if (meta.model) {
+        parts.push(`<div><strong>Model:</strong> ${escapeHtml(meta.model)}</div>`);
       }
-      
-      const popupContent = `
+      if (meta.registration) {
+        parts.push(`<div><strong>Registration:</strong> ${escapeHtml(meta.registration)}</div>`);
+      }
+      if (meta.operator) {
+        parts.push(`<div><strong>Operator:</strong> ${escapeHtml(meta.operator)}</div>`);
+      } else if (meta.owner) {
+        parts.push(`<div><strong>Owner:</strong> ${escapeHtml(meta.owner)}</div>`);
+      }
+      if (parts.length > 0) {
+        metadataHtml = `<hr style="margin: 6px 0; border: none; border-top: 1px solid #eee;">${parts.join('')}`;
+      }
+    }
+
+    return `
         <div style="min-width: 180px;">
           <strong style="font-size: 14px;">${categoryIcon} ${escapeHtml(plane.callsign)}</strong>
           <div style="font-size: 11px; color: #666; margin-top: 2px;">${escapeHtml(plane.origin)}</div>
@@ -618,10 +679,61 @@
           </div>
         </div>
       `;
-      
-      marker.bindPopup(popupContent);
-      marker.on('click', () => selectAircraft(plane));
-      aircraftMarkers.addLayer(marker);
+  }
+
+  function updateAircraftMarkers(aircraft: Aircraft[]) {
+    if (!aircraftMarkers || !L) return;
+
+    const seen = new Set<string>();
+
+    for (const plane of aircraft) {
+      seen.add(plane.id);
+      const { html, size } = buildAircraftIconHtml(plane);
+      const popupContent = buildAircraftPopupContent(plane);
+      const existing = aircraftMarkerById.get(plane.id);
+
+      if (existing) {
+        const state = aircraftMarkerState.get(existing)!;
+        existing.setLatLng([plane.location.lat, plane.location.lng]);
+        if (state.iconHtml !== html) {
+          existing.setIcon(L.divIcon({
+            className: '',
+            html,
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+          }));
+          state.iconHtml = html;
+        }
+        if (state.popup !== popupContent) {
+          // setContent updates an OPEN popup in place instead of closing it
+          existing.getPopup()?.setContent(popupContent);
+          state.popup = popupContent;
+        }
+        state.plane = plane;
+      } else {
+        const icon = L.divIcon({
+          className: '',
+          html,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+        const marker = L.marker([plane.location.lat, plane.location.lng], { icon });
+        marker.bindPopup(popupContent);
+        aircraftMarkerState.set(marker, { iconHtml: html, popup: popupContent, plane });
+        marker.on('click', () => {
+          const state = aircraftMarkerState.get(marker);
+          if (state) selectAircraft(state.plane);
+        });
+        aircraftMarkerById.set(plane.id, marker);
+        aircraftMarkers.addLayer(marker);
+      }
+    }
+
+    for (const [id, marker] of aircraftMarkerById) {
+      if (!seen.has(id)) {
+        aircraftMarkers.removeLayer(marker);
+        aircraftMarkerById.delete(id);
+      }
     }
   }
 
