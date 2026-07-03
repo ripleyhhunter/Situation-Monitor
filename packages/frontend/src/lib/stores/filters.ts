@@ -27,6 +27,7 @@ function getJurisdictionForIncident(incident: Incident): Jurisdiction | null {
     case 'dc-shotspotter':
     case 'dc-traffic':
     case 'alertdc':
+    case 'dcfireems-twitter':
     case 'pulsepoint':
       return 'dc';
     case 'moco-crime':
