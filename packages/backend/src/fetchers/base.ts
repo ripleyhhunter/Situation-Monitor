@@ -1,10 +1,18 @@
-import type { FetcherResult } from '../types/index.js';
+import type { FetcherResult, DataSource } from '../types/index.js';
 import cache from '../services/cache.js';
 import logger from '../logger.js';
 
 export abstract class BaseFetcher<T> {
   protected name: string;
   protected cacheTtl: number;
+
+  /**
+   * The DataSource this fetcher's incidents are stamped with, declared by
+   * fetchers whose feed is a complete snapshot (region packs list these in
+   * sourcesWithCompleteListing). Lets the aggregator cross-clear that
+   * source's incidents even when a successful poll returns zero items.
+   */
+  readonly incidentSource?: DataSource;
 
   constructor(name: string, cacheTtl: number) {
     this.name = name;

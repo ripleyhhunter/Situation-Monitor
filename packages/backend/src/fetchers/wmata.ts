@@ -39,6 +39,8 @@ interface WMATATrainPositionResponse {
 }
 
 export class WMATAFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'wmata' as const;
+
   private apiKey: string;
 
   constructor() {

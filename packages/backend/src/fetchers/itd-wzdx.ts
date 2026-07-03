@@ -57,6 +57,8 @@ export interface ItdWzdxFetcherOptions {
 }
 
 export class ItdWzdxFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'itd-wzdx' as const;
+
   private static readonly URL = 'https://511.idaho.gov/api/wzdx';
 
   private bounds: ItdWzdxFetcherOptions['bounds'];

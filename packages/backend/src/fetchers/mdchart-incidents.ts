@@ -27,6 +27,8 @@ interface MDChartResponse {
 }
 
 export class MDChartIncidentsFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'mdchart' as const;
+
   constructor() {
     super('mdchart-incidents', config.cacheTtl.trafficIncidents);
   }

@@ -7,6 +7,7 @@ import type {
   Aircraft,
   NewsItem,
   RegionId,
+  DataSource,
 } from '../types/index.js';
 import type { RegionPack } from '../regions/types.js';
 import { allRegions } from '../regions/index.js';
@@ -306,36 +307,40 @@ class AggregatorService {
 
   private async fetchTrafficIncidents(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.trafficIncidentFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.trafficIncidentFetchers[i].incidentSource);
       }
     }
   }
 
   private async fetchCrime(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.crimeFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.crimeFetchers[i].incidentSource);
       }
     }
   }
 
   private async fetchShotSpotter(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.shotspotterFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.shotspotterFetchers[i].incidentSource);
       }
     }
   }
 
   private async fetchEmergencyAlerts(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.emergencyAlertFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.emergencyAlertFetchers[i].incidentSource);
       }
     }
   }
@@ -344,7 +349,7 @@ class AggregatorService {
     if (!region.transitFetcher) return;
     const result = await region.transitFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(region, result.data);
+      await this.processIncidents(region, result.data, region.transitFetcher.incidentSource);
     }
   }
 
@@ -432,8 +437,14 @@ class AggregatorService {
 
   // ---------- shared processing ----------
 
-  private async processIncidents(region: RegionPack, newIncidents: Incident[]): Promise<void> {
-    if (newIncidents.length === 0) return;
+  private async processIncidents(
+    region: RegionPack,
+    newIncidents: Incident[],
+    source?: DataSource,
+  ): Promise<void> {
+    // Without an explicit source, an empty batch carries no information —
+    // with one, it may still cross-clear below (feed went from N to 0).
+    if (newIncidents.length === 0 && !source) return;
 
     const state = this.getState(region.id);
     const processedIds = new Set<string>();
@@ -459,7 +470,7 @@ class AggregatorService {
     }
 
     // Cross-clear: only for sources whose feed is a complete snapshot.
-    const sourcePrefix = newIncidents[0]?.source;
+    const sourcePrefix = source ?? newIncidents[0]?.source;
     if (sourcePrefix && region.sourcesWithCompleteListing.includes(sourcePrefix)) {
       for (const [id, incident] of state.incidents) {
         if (incident.source === sourcePrefix && !processedIds.has(id)) {

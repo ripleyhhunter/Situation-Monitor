@@ -31,6 +31,8 @@ interface DCTrafficResponse {
 }
 
 export class DCTrafficFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'dc-traffic' as const;
+
   constructor() {
     super('dc-traffic', config.cacheTtl.trafficIncidents);
   }

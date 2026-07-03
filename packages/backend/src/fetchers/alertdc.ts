@@ -12,6 +12,8 @@ interface AlertItem {
 }
 
 export class AlertDCFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'alertdc' as const;
+
   constructor() {
     super('alertdc', config.cacheTtl.crime);
   }
