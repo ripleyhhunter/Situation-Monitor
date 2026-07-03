@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { sse } from '../services/sse.js';
 import { aggregator } from '../services/aggregator.js';
 import logger from '../logger.js';
+import type { Aircraft, NewsItem, RegionId } from '../types/index.js';
 
 const router = Router();
 
@@ -45,29 +46,55 @@ router.get('/', (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'aqi:update', data: aqi, timestamp: new Date().toISOString() })}\n\n`);
   }
 
-  // Send current weather conditions
-  if (data.currentWeather) {
-    res.write(`event: weather:current\n`);
-    res.write(`data: ${JSON.stringify({ type: 'weather:current', data: data.currentWeather, timestamp: new Date().toISOString() })}\n\n`);
+  // Send current weather per region (same shape as the periodic broadcast:
+  // a single CurrentWeather object carrying its regionId)
+  for (const weather of Object.values(data.currentWeather)) {
+    if (weather) {
+      res.write(`event: weather:current\n`);
+      res.write(`data: ${JSON.stringify({ type: 'weather:current', data: weather, timestamp: new Date().toISOString() })}\n\n`);
+    }
   }
 
-  // Send aircraft data
-  if (data.aircraft && data.aircraft.length > 0) {
-    res.write(`event: aircraft:update\n`);
-    res.write(`data: ${JSON.stringify({ 
-      type: 'aircraft:update', 
-      data: { aircraft: data.aircraft, timestamp: new Date().toISOString() }, 
-      timestamp: new Date().toISOString() 
+  // Send news per region (same shape as the periodic broadcast)
+  const newsByRegion = new Map<RegionId, NewsItem[]>();
+  for (const item of data.news) {
+    const list = newsByRegion.get(item.regionId) || [];
+    list.push(item);
+    newsByRegion.set(item.regionId, list);
+  }
+  for (const [regionId, news] of newsByRegion) {
+    res.write(`event: news:update\n`);
+    res.write(`data: ${JSON.stringify({
+      type: 'news:update',
+      data: { regionId, news, timestamp: new Date().toISOString() },
+      timestamp: new Date().toISOString(),
     })}\n\n`);
   }
 
-  logger.info('Initial data sent to SSE client', { 
-    clientId, 
-    incidents: data.incidents.length, 
+  // Send aircraft per region (same shape as the periodic broadcast)
+  const aircraftByRegion = new Map<RegionId, Aircraft[]>();
+  for (const aircraft of data.aircraft) {
+    const list = aircraftByRegion.get(aircraft.regionId) || [];
+    list.push(aircraft);
+    aircraftByRegion.set(aircraft.regionId, list);
+  }
+  for (const [regionId, aircraft] of aircraftByRegion) {
+    res.write(`event: aircraft:update\n`);
+    res.write(`data: ${JSON.stringify({
+      type: 'aircraft:update',
+      data: { regionId, aircraft, timestamp: new Date().toISOString() },
+      timestamp: new Date().toISOString(),
+    })}\n\n`);
+  }
+
+  logger.info('Initial data sent to SSE client', {
+    clientId,
+    incidents: data.incidents.length,
     cameras: data.cameras.length,
     weatherAlerts: data.weather.length,
-    hasCurrentWeather: !!data.currentWeather,
-    aircraft: data.aircraft?.length || 0,
+    regionsWithWeather: Object.values(data.currentWeather).filter(Boolean).length,
+    news: data.news.length,
+    aircraft: data.aircraft.length,
     wantsAircraft
   });
 });
