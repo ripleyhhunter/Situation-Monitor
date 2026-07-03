@@ -3,6 +3,7 @@ import type { Incident, IncidentType } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { geocache } from '../services/geocache.js';
+import { wallClockToUtcMs } from '../utils/timezone.js';
 
 interface AlertItem {
   title: string;
@@ -341,29 +342,9 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     let hour = parseInt(h, 10) % 12;
     if (ap.toUpperCase() === 'PM') hour += 12;
 
-    // Treat the wall-clock as UTC, then subtract Eastern's offset at that
-    // instant (offset = Eastern wall-clock minus UTC, negative in practice).
-    const utcGuess = Date.UTC(+y, +mo - 1, +d, hour, +min, +(sec || 0));
-    const offsetMs = this.zoneOffsetMs(utcGuess, 'America/New_York');
-    return new Date(utcGuess - offsetMs).toISOString();
-  }
-
-  private zoneOffsetMs(utcMs: number, timeZone: string): number {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false,
-    });
-    const parts: Record<string, string> = {};
-    for (const p of dtf.formatToParts(new Date(utcMs))) {
-      parts[p.type] = p.value;
-    }
-    const zoneAsUtc = Date.UTC(
-      +parts.year, +parts.month - 1, +parts.day,
-      +parts.hour % 24, +parts.minute, +parts.second,
-    );
-    return zoneAsUtc - utcMs;
+    return new Date(
+      wallClockToUtcMs(+y, +mo, +d, hour, +min, +(sec || 0), 'America/New_York'),
+    ).toISOString();
   }
 
   private generateId(title: string, timestamp: string): string {
