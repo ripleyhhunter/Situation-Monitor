@@ -18,7 +18,7 @@ import logger from '../logger.js';
 
 interface PGCrimeRecord {
   incident_case_id?: string;
-  date?: string;                    // MM/DD/YYYY format
+  date?: string;                    // ISO floating timestamp, e.g. "2026-06-18T00:00:00.000"
   clearance_code_inc_type?: string; // Crime type description
   pgpd_reporting_area?: string;
   pgpd_sector?: string;
@@ -39,15 +39,12 @@ export class PGCrimeFetcher extends BaseFetcher<Incident> {
   }
 
   protected async fetchFromApi(): Promise<Incident[]> {
-    // Calculate date for last 30 days of data
+    // Calculate date for last 30 days of data. The date column is an ISO
+    // floating timestamp, so the literal must be ISO too (an MM/DD/YYYY
+    // literal gets HTTP 400 type-mismatch from Socrata).
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    // Format as MM/DD/YYYY for the Socrata API
-    const month = String(thirtyDaysAgo.getMonth() + 1).padStart(2, '0');
-    const day = String(thirtyDaysAgo.getDate()).padStart(2, '0');
-    const year = thirtyDaysAgo.getFullYear();
-    const dateStr = `${month}/${day}/${year}`;
+    const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
 
     // Socrata SODA API - current crime data (July 2023 to present)
     const baseUrl = 'https://data.princegeorgescountymd.gov/resource/xjru-idbe.json';
@@ -71,7 +68,11 @@ export class PGCrimeFetcher extends BaseFetcher<Incident> {
       logger.info(`PG Crime: fetched ${response.length} incidents from last 30 days`);
 
       return response
-        .filter((record) => record.latitude && record.longitude)
+        .filter((record) => {
+          const lat = parseFloat(record.latitude || '');
+          const lng = parseFloat(record.longitude || '');
+          return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+        })
         .map((record) => this.normalizeCrime(record));
     } catch (error) {
       logger.error('Failed to fetch Prince George\'s County Crime data', { error });
@@ -82,13 +83,13 @@ export class PGCrimeFetcher extends BaseFetcher<Incident> {
   private normalizeCrime(record: PGCrimeRecord): Incident {
     const now = new Date().toISOString();
 
-    // Parse date - PG uses MM/DD/YYYY format
-    let incidentDate: string;
+    // Parse the ISO floating timestamp
+    let incidentDate = now;
     if (record.date) {
-      const [month, day, year] = record.date.split('/');
-      incidentDate = new Date(`${year}-${month}-${day}`).toISOString();
-    } else {
-      incidentDate = now;
+      const parsed = new Date(record.date);
+      if (!isNaN(parsed.getTime())) {
+        incidentDate = parsed.toISOString();
+      }
     }
 
     // Build offense string
@@ -108,7 +109,9 @@ export class PGCrimeFetcher extends BaseFetcher<Incident> {
         neighborhood: record.city || record.pgpd_sector,
       },
       timestamp: incidentDate,
-      updatedAt: now,
+      // Stable across polls (crime reports are effectively immutable) so the
+      // aggregator's updatedAt diff doesn't re-broadcast 2000 records per poll.
+      updatedAt: incidentDate,
       regionId: 'dc',
       source: 'pg-crime',
       title: this.formatOffense(offense),
