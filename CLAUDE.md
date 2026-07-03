@@ -5,34 +5,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Situation Monitor is a real-time situation monitoring dashboard. The codebase
-is **region-aware**: a single deployment is configured for one city/region via
-the `REGION` env var, which picks the matching `RegionPack` (see
-`packages/backend/src/regions/`). Currently supports:
+is **multi-region**: the backend schedules and fetches **all** regions in
+`regions/index.ts` `allRegions` concurrently, broadcasts every region's data
+to every SSE client, and the frontend picks which region to surface (header
+switcher, persisted in localStorage). The `REGION` / `PUBLIC_REGION` env vars
+only set the *default/initial* selection. Current regions:
 
-- **`REGION=dc`** — Washington, DC + DMV (PulsePoint EMS1205, MD CHART, DC Open Data, WMATA, AlertDC, ShotSpotter, OpenMHz DCFD)
-- **`REGION=boise`** — Boise / Ada County / Treasure Valley (PulsePoint EMS1169 ACCESS, BPD Crimes ArcGIS, ITD WZDx work zones, NWS Boise webcams)
+- **`dc`** — Washington, DC + DMV (PulsePoint EMS1205, MD CHART, DC Open Data, WMATA, AlertDC, ShotSpotter, MoCo/PG crime)
+- **`boise`** — Boise / Ada County / Treasure Valley (PulsePoint EMS1169 ACCESS, BPD Crimes ArcGIS, ITD WZDx work zones, NWS Boise webcams)
 
 Shared (region-agnostic) fetchers: NWS weather alerts, Open-Meteo current
-conditions, AirNow, OpenSky aircraft, news RSS. Each reads its config (zones,
-timezone, bbox, feeds) from the active region pack.
+conditions, AirNow, OpenSky aircraft, news RSS. Each is instantiated
+per-region by the pack file with the region's config (zones, timezone, bbox,
+feeds) passed to its constructor — no fetcher reads a global region.
 
 ## Region Pack Architecture
 
 Each region exports a `RegionPack` from `regions/<id>.ts` (see
 `regions/types.ts` for the contract). A pack bundles:
-- **Static config**: `defaultCenter`, `timezone`, `openSkyBounds`, `nwsZones`, `sourcesWithCompleteListing`
+- **Static config**: `city`/`state`/`timezone`, `defaultCenter`, `openSkyBounds`, `nwsZones`, `sourcesWithCompleteListing`
 - **Fetcher arrays** grouped by scheduling profile: `cameraFetchers`, `trafficIncidentFetchers`, `crimeFetchers`, `shotspotterFetchers`, `emergencyAlertFetchers`
 - **Singleton-or-null fetchers**: `pulsePointFetcher`, `transitFetcher`, `scannerFetcher`, `twitterFetcher`
 - **News config**: RSS feeds + region-specific area keywords / location regex patterns
 
-`regions/index.ts` reads `process.env.REGION` and exports `activeRegion`. The
-aggregator iterates `activeRegion.<category>Fetchers` — it has zero
-hardcoded region knowledge.
+`regions/index.ts` exports `allRegions` (what the aggregator iterates —
+it has zero hardcoded region knowledge), `regionsById`, and
+`defaultRegionId` (from `process.env.REGION`, a frontend-default hint only).
 
-Region-tagged fetchers (PulsePoint, NewsFetcher) take config in their constructor;
-the regional pack file (`dc.ts` / `boise.ts`) builds the instance.
-`nws-weather.ts`, `current-weather.ts`, `opensky.ts` import `activeRegion`
-directly for zones / timezone / bbox.
+Incident lifecycle notes:
+- Sources listed in `sourcesWithCompleteListing` are snapshot feeds: absence
+  from a successful poll implies cleared (including empty snapshots — their
+  fetchers declare `incidentSource` on `BaseFetcher` so this works when a
+  feed empties). They are exempt from the age-based cleanup sweep.
+- Other sources age out per `expirationMs` in `aggregator.cleanupStaleIncidents`;
+  a fetcher's own fetch-window filter must stay inside that window or records
+  will clear/re-add in a loop (see bpd-crime / dc-shotspotter for the pattern).
+- Normalizers should derive `updatedAt` from feed fields, never `now` — the
+  aggregator diffs on `updatedAt` to decide what to re-broadcast.
+- Geocoding is region-scoped: `geocache.geocode(address, {city, state, center})`.
 
 ## Key Limitations & Solutions
 
@@ -42,25 +52,30 @@ directly for zones / timezone / bbox.
 | Boise PD on SWIRC P25 Phase II (some channels encrypted) | Same — link out to RadioReference / PulsePoint instead |
 | Neither city publishes raw Fire/EMS CAD | **PulsePoint scraping** via Playwright (DC: EMS1205, Boise: EMS1169 / ACCESS) |
 | Twitter API costs $100/month | Optional `TWITTER_BEARER_TOKEN` (DC `@dcfireems` only) |
-| Boise crime data is ~9 days delayed | BPD_Crimes_Public is historical; near-real-time `BPD_CallsForService` exists but not yet wired |
+| Boise crime data lags ~1 month | bpd-crime uses a 60-day fetch window + matching 60-day expiry; near-real-time `BPD_CallsForService` exists but not yet wired |
+| DC ShotSpotter feed appears stale (no new detections since ~2026-04) | 30-day fetch window — the layer is honestly empty until the feed revives |
 | ITD camera API requires a key | Skipped — Boise's `cameraFetchers` only ships curated NWS Boise airport cams |
+| OpenMHz fetcher is a placeholder that always returns `[]` | Scanner panel links out to Broadcastify/OpenMHz instead |
 
 ## Build & Development Commands
 
 This is a Turborepo + npm workspaces monorepo. Workspace package names: `@situation-monitor/frontend`, `@situation-monitor/backend`.
 
-**Windows shortcut:** `start-monitor.bat` at the repo root does `docker-compose up -d` + `npm run dev`, and runs `docker-compose down` on exit.
+**Windows shortcut:** `start-monitor.bat` at the repo root (personal,
+gitignored — exists only on the owner's machine) does `docker-compose up -d`
++ `npm run dev`, and runs `docker-compose down` on exit.
 
 **Note on `npm run clean`:** the per-workspace `clean` scripts use POSIX `rm -rf` and will fail in plain PowerShell — use Git Bash / WSL or delete `dist/`, `.svelte-kit/`, `build/`, `node_modules/` manually.
 
 ```bash
 # From repo root
 npm install              # Install all dependencies
+npx playwright install chromium   # One-time: browser for PulsePoint scraping
 npm run dev              # Start frontend + backend with hot-reload (via turbo)
-npm run docker:up        # Start Redis (required for caching)
+npm run docker:up        # Start Redis (OPTIONAL — falls back to in-memory cache)
 npm run docker:down      # Stop Redis
 npm run build            # Production build (both workspaces)
-npm run test             # Run tests (both workspaces)
+npm run test             # Run tests once and exit (both workspaces)
 npm run lint             # Lint both workspaces
 
 # Scope a command to one workspace from the repo root
@@ -71,13 +86,17 @@ npm run build --workspace=@situation-monitor/frontend
 npm run dev              # tsx watch src/index.ts
 npm run build            # Compile TypeScript -> dist/
 npm run start            # Run production build (node dist/index.js)
-npm run test             # vitest
+npm run test             # vitest run (single pass)
+npm run test:watch       # vitest watch mode
 
 # Run a single backend test
 cd packages/backend
-npx vitest run src/fetchers/pulsepoint.test.ts        # one file
-npx vitest run -t "should complete full PulsePoint"   # by test name (substring match)
-npx vitest                                            # watch mode
+npx vitest run src/config.test.ts                     # one file
+npx vitest run -t "returns cached data"               # by test name (substring match)
+
+# The PulsePoint E2E (live Chromium against web.pulsepoint.org) is skipped
+# unless RUN_E2E is set:
+RUN_E2E=1 npx vitest run src/fetchers/pulsepoint.test.ts
 
 # Frontend only (from packages/frontend)
 npm run dev              # Vite dev server (port 5173, proxies /api -> :3000)
@@ -91,24 +110,29 @@ npm run lint             # eslint
 
 ### Monorepo Structure
 - **packages/frontend**: SvelteKit 2.x + Svelte 5, Leaflet.js, TailwindCSS
-- **packages/backend**: Node.js 20, Express, Redis, SQLite, Playwright
+- **packages/backend**: Node.js 20, Express, Redis (optional), Playwright
 
 ### Backend Data Flow
 ```
-External APIs → Fetchers (node-cron scheduled) → Normalizers → Redis Cache + SQLite → SSE Broadcast → Frontend
+External APIs → Fetchers (node-cron scheduled, per region) → Normalizers
+  → in-memory region state (+ Redis snapshot of active incidents) → SSE Broadcast → Frontend
 ```
+There is no durable database: `database.ts` is an in-memory mirror, and the
+only restart persistence is the Redis `incidents:active:<region>` snapshot.
 
 ### Key Files
 
 **Backend:**
 | File | Purpose |
 |------|---------|
-| `src/services/aggregator.ts` | Orchestrates all fetchers, manages state, SSE broadcasting |
+| `src/services/aggregator.ts` | Orchestrates all fetchers per region, manages state, cleanup sweeps, SSE broadcasting |
 | `src/services/scheduler.ts` | Cron-based job scheduling |
-| `src/services/sse.ts` | Server-Sent Events broadcasting |
-| `src/services/database.ts` | SQLite persistence layer |
-| `src/fetchers/*.ts` | Individual API integrations (19 registered in `aggregator.ts`) |
-| `src/routes/*.ts` | Express route handlers (health, incidents, cameras, weather, aqi, events) |
+| `src/services/sse.ts` | Server-Sent Events broadcasting + per-client aircraft-region preferences |
+| `src/services/database.ts` | In-memory Map mirror (NOT SQLite — no durable persistence) |
+| `src/services/geocache.ts` | Region-scoped Nominatim geocoding with Redis-persisted cache |
+| `src/regions/dc.ts`, `src/regions/boise.ts` | **The authoritative fetcher registry** — aggregator imports no fetchers itself |
+| `src/fetchers/*.ts` | Individual API integrations (22 modules; 19 wired in dc.ts, 9 in boise.ts) |
+| `src/routes/*.ts` | Express route handlers (health, incidents, cameras, weather, aqi, news, events) |
 | `src/middleware/cors.ts` | Production CORS allowlist; dev is wide-open |
 
 **Frontend:**
@@ -122,7 +146,9 @@ External APIs → Fetchers (node-cron scheduled) → Normalizers → Redis Cache
 
 ### All Data Fetchers
 
-Authoritative list: imports at the top of `packages/backend/src/services/aggregator.ts`. Currently 19 fetchers registered.
+Authoritative list: the fetcher wiring in `packages/backend/src/regions/dc.ts`
+and `regions/boise.ts` (the aggregator imports no fetchers itself). 22 fetcher
+modules exist; the table below covers the notable ones.
 
 | Fetcher | Source | Type | Interval | Notes |
 |---------|--------|------|----------|-------|
@@ -162,32 +188,36 @@ The frontend SSE client handles event types `incident:new/update/clear`, `camera
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/health` | Health check with service status |
-| `GET /api/events` | SSE stream for real-time updates |
+| `GET /api/events` | SSE stream (sends a full snapshot on connect, then deltas); `?aircraft=true&region=<id>` seeds the aircraft preference |
+| `POST /api/events/preferences` | Update a client's aircraft preference (`{clientId, wantsAircraft, regionId}`) |
 | `GET /api/incidents` | Active incidents (filterable) |
 | `GET /api/cameras` | All cameras |
 | `GET /api/weather` | Weather alerts |
 | `GET /api/aqi` | Air quality data |
+| `GET /api/news` | News items |
+| `GET /api/news/related/:incidentId` | News related to one incident (region-aware) |
 
 ### Environment Variables
-Copy `.env.example` to `.env`:
+Copy `.env.example` to `.env` — it is the authoritative, commented reference.
+Highlights:
 
 ```env
-# Required
-REDIS_URL=redis://localhost:6379
+REGION=dc                 # Default region hint only — the backend serves ALL regions
+PUBLIC_REGION=dc          # Initial frontend selection (user choice persists in localStorage)
+REDIS_URL=redis://localhost:6379   # Optional — falls back to in-memory cache
 
-# Optional API keys
+# Optional API keys (features degrade gracefully without them)
 WMATA_API_KEY=xxx         # developer.wmata.com (free)
 AIRNOW_API_KEY=xxx        # airnowapi.org (free)
 TWITTER_BEARER_TOKEN=xxx  # developer.twitter.com ($100/mo)
 OPENSKY_CLIENT_ID=xxx     # opensky-network.org OAuth2 (4000 credits/day free)
 OPENSKY_CLIENT_SECRET=xxx
 
-# Defaults
-PUBLIC_DEFAULT_LAT=38.9072
-PUBLIC_DEFAULT_LNG=-77.0369
+# PUBLIC_DEFAULT_LAT/LNG are the MD CHART 80km proximity anchor (backend),
+# NOT the frontend map center — that comes from $lib/config region presets.
 
 # Frontend -> backend wiring
-PUBLIC_API_URL=           # Empty = same-origin. Set for cross-origin (e.g. GitHub Pages -> http://localhost:3000)
+PUBLIC_API_URL=           # Empty = same-origin. Set for cross-origin deployments.
 
 # Backend CORS
 CORS_ORIGINS=             # Comma-separated. Only consulted when NODE_ENV=production.
@@ -199,14 +229,20 @@ CORS_ORIGINS=             # Comma-separated. Only consulted when NODE_ENV=produc
 - In production builds: the SSE client reads `import.meta.env.PUBLIC_API_URL` and prefixes every API call with it (`packages/frontend/src/lib/services/sse.ts`). Empty = same-origin.
 - Backend CORS in production reads `CORS_ORIGINS` (comma-separated); if unset it falls back to `http://localhost:5173,http://localhost:4173`.
 
-### GitHub Pages Deployment
-The frontend is configured to deploy as a static SPA to GitHub Pages via `.github/workflows/deploy.yml` on push to `master`.
+### CI & GitHub Pages Deployment
+Two workflows:
+- `.github/workflows/ci.yml` — quality gate on every push: backend
+  build (tsc), backend tests (vitest run), lint (both workspaces),
+  svelte-check, frontend build. Keep it green.
+- `.github/workflows/deploy.yml` — deploys the frontend as a static SPA to
+  GitHub Pages on push to `master`.
 
+Deploy details:
 - Adapter: `@sveltejs/adapter-static` with `fallback: 'index.html'` (SPA mode).
 - Root layout (`src/routes/+layout.ts`): `prerender = true`, `ssr = false`.
 - Build-time env vars used by the workflow:
   - `BASE_PATH=/Situation-Monitor` — sets SvelteKit `paths.base` so asset URLs are correct under `/<repo>/`. Empty in dev.
-  - `PUBLIC_API_URL=http://localhost:3000` — the deployed site only works while the backend is running locally; browsers exempt `http://localhost` from mixed-content blocking.
+  - `PUBLIC_API_URL` — **currently hardcoded in deploy.yml to a Cloudflare quick-tunnel hostname that no longer resolves**, so the public site renders empty. Quick-tunnel URLs change on every cloudflared restart; the deployment needs a stable hostname (named tunnel / Tailscale Funnel) or should be dropped in favor of fully-local use.
 - One-time setup: repo Settings → Pages → Source = "GitHub Actions".
 - Deployed URL: `https://<owner>.github.io/Situation-Monitor/`.
 
@@ -214,14 +250,18 @@ The frontend is configured to deploy as a static SPA to GitHub Pages via `.githu
 
 ### Adding a New Data Source
 1. Create fetcher in `packages/backend/src/fetchers/`
-2. Extend `BaseFetcher<T>` class with `fetchFromApi()` method
-3. Normalize data to `Incident`, `Camera`, or custom type
-4. Register in `aggregator.ts`:
-   - Add import
-   - Add schedule in `scheduleAllFetchers()`
-   - Add fetch method
-   - Include in `fetchAll()` if needed at startup
-5. Update `packages/backend/src/types/index.ts` if new types needed
+2. Extend `BaseFetcher<T>` class with `fetchFromApi()` method. Throw on
+   failures/contract changes (BaseFetcher then serves stale cache and records
+   the error) — never swallow errors into an empty-array "success".
+3. Normalize data to `Incident`, `Camera`, or custom type. Derive `updatedAt`
+   from feed fields (never `now`); keep any fetch-window filter inside the
+   source's `expirationMs` in `aggregator.cleanupStaleIncidents`.
+4. Register it in the region pack (`regions/dc.ts` / `regions/boise.ts`) in
+   the fetcher array matching its scheduling profile. If the feed is a
+   complete snapshot, declare `readonly incidentSource = '<source>' as const`
+   and add the source to the pack's `sourcesWithCompleteListing`.
+5. Update `packages/backend/src/types/index.ts` if new types needed (add the
+   `DataSource` value)
 6. Add SSE event handler in frontend `src/lib/services/sse.ts`
 7. Add store in `src/lib/stores/` if needed
 

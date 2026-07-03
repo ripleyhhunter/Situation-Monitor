@@ -36,7 +36,3 @@ export const defaultRegionId: RegionId = resolveDefaultRegionId();
 export const defaultRegion: RegionPack = regionsById[defaultRegionId];
 
 logger.info(`Regions loaded: ${allRegions.map(r => r.id).join(', ')} (default: ${defaultRegionId})`);
-
-// Backwards-compat alias for code that hasn't migrated yet.
-export const activeRegion: RegionPack = defaultRegion;
-export default activeRegion;
