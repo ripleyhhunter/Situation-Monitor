@@ -109,7 +109,7 @@ class CacheService {
   async get<T>(key: string): Promise<T | null> {
     try {
       if (this.redis && this.connected) {
-        const data = await withTimeout(this.redis.get(key), this.commandTimeout);
+        const data = await withTimeout<string | null>(this.redis.get(key), this.commandTimeout);
         return data ? JSON.parse(data) : null;
       }
 
