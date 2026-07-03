@@ -43,6 +43,10 @@ export interface PulsePointAgencyConfig {
   cityPattern: RegExp;
   /** Title prefix on each normalized incident, e.g. "DCFD" or "ACCESS". */
   titlePrefix: string;
+  /** City appended to bare street addresses when geocoding, e.g. "Washington". */
+  geocodeCity: string;
+  /** Two-letter state for geocoding, e.g. "DC". */
+  geocodeState: string;
   /** Center used as a deterministic fallback when geocoding fails. */
   fallbackCenter: { lat: number; lng: number };
   /**
@@ -401,7 +405,11 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
 
     const stableId = this.generateStableId(raw.address, raw.type);
 
-    const geocoded = await geocache.geocode(raw.address);
+    const geocoded = await geocache.geocode(raw.address, {
+      city: this.agency.geocodeCity,
+      state: this.agency.geocodeState,
+      center: this.agency.fallbackCenter,
+    });
     const coords = geocoded || this.estimateFallback(raw.address);
 
     return {

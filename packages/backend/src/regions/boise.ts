@@ -55,6 +55,8 @@ const boisePulsePoint = new PulsePointFetcher({
   agencyMatcher: /Ada County|Boise Fire|ACCESS|Meridian Fire/i,
   cityPattern: /(BOISE|MERIDIAN|EAGLE|STAR|KUNA|GARDEN CITY|NAMPA|CALDWELL),\s*ID/i,
   titlePrefix: 'ACCESS',
+  geocodeCity: 'Boise',
+  geocodeState: 'ID',
   fallbackCenter: { lat: 43.6166, lng: -116.2002 },
   useDcQuadrantFallback: false,
 });

@@ -356,8 +356,13 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     const address = this.extractAddress(description);
     
     if (address) {
-      // Use centralized geocache service (persisted to Redis)
-      const result = await geocache.geocode(address);
+      // Use centralized geocache service (persisted to Redis).
+      // AlertDC is inherently a DC feed, so the region context is fixed.
+      const result = await geocache.geocode(address, {
+        city: 'Washington',
+        state: 'DC',
+        center: { lat: 38.9072, lng: -77.0369 },
+      });
       if (result) {
         return {
           lat: result.lat,

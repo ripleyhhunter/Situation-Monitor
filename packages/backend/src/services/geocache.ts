@@ -14,6 +14,21 @@ interface GeocodedLocation {
   geocodedAt: string;
 }
 
+/** Region context for geocoding — supplied by the caller so the shared
+ * service works for any region (addresses are bare street strings). */
+export interface GeocodeRegion {
+  /** City appended to bare street addresses, e.g. "Washington", "Boise". */
+  city: string;
+  /** Two-letter state, e.g. "DC", "ID". */
+  state: string;
+  /** Sanity anchor — results farther than MAX_DISTANCE_KM are rejected as wrong-city matches. */
+  center: { lat: number; lng: number };
+}
+
+/** Reject geocode hits farther than this from the region center (a street
+ * name that exists in another city would otherwise be cached for 30 days). */
+const MAX_DISTANCE_KM = 60;
+
 // In-memory cache for fast lookups (populated from Redis on startup)
 const memoryCache = new Map<string, GeocodedLocation>();
 
@@ -73,72 +88,73 @@ class GeocacheService {
     }
   }
 
-  /**
-   * Get cached coordinates for an address
-   */
-  async get(address: string): Promise<GeocodedLocation | null> {
+  /** Cache keys are region-scoped: the same bare street string in two
+   * regions must never share an entry. */
+  private scopedKey(region: GeocodeRegion, address: string): string {
+    return `${region.state}:${region.city}:${address}`;
+  }
+
+  private async getCached(region: GeocodeRegion, address: string): Promise<GeocodedLocation | null> {
     await this.initialize();
-    
+
+    const key = this.scopedKey(region, address);
+
     // Check memory cache first (fastest)
-    const cached = memoryCache.get(address);
+    const cached = memoryCache.get(key);
     if (cached) {
       return cached;
     }
-    
+
     // Try Redis if not in memory
-    const redisKey = REDIS_PREFIX + address;
-    const redisData = await cache.get<GeocodedLocation>(redisKey);
-    
+    const redisData = await cache.get<GeocodedLocation>(REDIS_PREFIX + key);
+
     if (redisData) {
       // Populate memory cache
-      memoryCache.set(address, redisData);
+      memoryCache.set(key, redisData);
       return redisData;
     }
-    
+
     return null;
   }
 
-  /**
-   * Store geocoded coordinates for an address
-   */
-  async set(address: string, lat: number, lng: number): Promise<void> {
+  private async setCached(region: GeocodeRegion, address: string, lat: number, lng: number): Promise<void> {
     await this.initialize();
-    
+
+    const key = this.scopedKey(region, address);
     const data: GeocodedLocation = {
       lat,
       lng,
       geocodedAt: new Date().toISOString(),
     };
-    
-    // Store in memory
-    memoryCache.set(address, data);
-    
-    // Persist to Redis
-    const redisKey = REDIS_PREFIX + address;
-    await cache.set(redisKey, data, CACHE_TTL_SECONDS);
+
+    memoryCache.set(key, data);
+    await cache.set(REDIS_PREFIX + key, data, CACHE_TTL_SECONDS);
   }
 
   /**
    * Geocode an address using Nominatim, with caching
    */
-  async geocode(address: string): Promise<{ lat: number; lng: number; cached: boolean } | null> {
+  async geocode(
+    address: string,
+    region: GeocodeRegion,
+  ): Promise<{ lat: number; lng: number; cached: boolean } | null> {
     // Check cache first
-    const cached = await this.get(address);
+    const cached = await this.getCached(region, address);
     if (cached) {
       return { lat: cached.lat, lng: cached.lng, cached: true };
     }
-    
+
     // Clean the address
-    const cleanAddress = this.cleanAddress(address);
+    const cleanAddress = this.cleanAddress(address, region);
     if (!cleanAddress) {
       return null;
     }
-    
+
     // Also check cache with cleaned address
-    const cachedClean = await this.get(cleanAddress);
+    const cachedClean = await this.getCached(region, cleanAddress);
     if (cachedClean) {
       // Store under original address too
-      await this.set(address, cachedClean.lat, cachedClean.lng);
+      await this.setCached(region, address, cachedClean.lat, cachedClean.lng);
       return { lat: cachedClean.lat, lng: cachedClean.lng, cached: true };
     }
     
@@ -171,17 +187,17 @@ class GeocacheService {
       if (data && data.length > 0 && data[0].lat && data[0].lon) {
         const lat = parseFloat(data[0].lat);
         const lng = parseFloat(data[0].lon);
-        
-        // Validate within DC area
-        if (this.isInDCArea(lat, lng)) {
+
+        // Validate the hit is actually near this region
+        if (this.isNearRegion(lat, lng, region)) {
           // Cache the result
-          await this.set(address, lat, lng);
-          await this.set(cleanAddress, lat, lng);
-          
+          await this.setCached(region, address, lat, lng);
+          await this.setCached(region, cleanAddress, lat, lng);
+
           logger.debug(`Geocoded "${cleanAddress}" -> ${lat}, ${lng}`);
           return { lat, lng, cached: false };
         } else {
-          logger.debug(`Geocoding result outside DC area: "${cleanAddress}" -> ${lat}, ${lng}`);
+          logger.debug(`Geocoding result too far from ${region.city} center: "${cleanAddress}" -> ${lat}, ${lng}`);
         }
       }
     } catch (error) {
@@ -194,40 +210,42 @@ class GeocacheService {
   /**
    * Clean address for geocoding
    */
-  private cleanAddress(address: string): string | null {
+  private cleanAddress(address: string, region: GeocodeRegion): string | null {
     if (!address) return null;
-    
+
     let cleaned = address.trim();
-    
+
     // Remove "block of" and similar
     cleaned = cleaned.replace(/\bblock\s+of\b/gi, '');
     cleaned = cleaned.replace(/\bblk\s+of\b/gi, '');
     cleaned = cleaned.replace(/\bblock\b/gi, '');
-    
-    // Ensure Washington DC suffix
-    if (!cleaned.toLowerCase().includes('washington') && !cleaned.toLowerCase().includes(', dc')) {
-      cleaned = cleaned + ', Washington, DC';
+
+    // Ensure a city/state suffix so bare street strings resolve locally
+    const lower = cleaned.toLowerCase();
+    if (!lower.includes(region.city.toLowerCase()) && !lower.includes(`, ${region.state.toLowerCase()}`)) {
+      cleaned = `${cleaned}, ${region.city}, ${region.state}`;
     }
-    
+
     // Normalize whitespace
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    
+
     return cleaned.length > 5 ? cleaned : null;
   }
 
   /**
-   * Check if coordinates are within DC metro area
+   * Check the hit is within MAX_DISTANCE_KM of the region center
    */
-  private isInDCArea(lat: number, lng: number): boolean {
-    const bounds = {
-      north: 39.15,
-      south: 38.75,
-      east: -76.85,
-      west: -77.25,
-    };
-    
-    return lat >= bounds.south && lat <= bounds.north &&
-           lng >= bounds.west && lng <= bounds.east;
+  private isNearRegion(lat: number, lng: number, region: GeocodeRegion): boolean {
+    const R = 6371;
+    const toRad = (deg: number) => deg * (Math.PI / 180);
+    const dLat = toRad(lat - region.center.lat);
+    const dLng = toRad(lng - region.center.lng);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(region.center.lat)) * Math.cos(toRad(lat)) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const distanceKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return distanceKm <= MAX_DISTANCE_KM;
   }
 
   /**
