@@ -312,10 +312,15 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
 
   private parseDate(dateStr: string): string {
     try {
-      // Try parsing various date formats
-      // Format: "1/11/2026 6:25:00 AM" or "1/11/2026 6:25 AM"
-      const date = new Date(dateStr);
+      // The feed emits zone-less US/Eastern wall-clock strings like
+      // "1/11/2026 6:25:00 AM". new Date() would interpret them in the
+      // HOST's zone (e.g. 2h skew on a Mountain-time machine), shifting
+      // every alert's displayed time and its 24h-cleanup timing.
+      const eastern = this.parseEasternWallClock(dateStr);
+      if (eastern) return eastern;
 
+      // Strings that carry their own zone (RSS pubDate etc.) parse directly.
+      const date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
         return date.toISOString();
       }
@@ -325,6 +330,40 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     } catch {
       return new Date().toISOString();
     }
+  }
+
+  /** Parse "M/D/YYYY h:mm[:ss] AM/PM" as America/New_York wall-clock time. */
+  private parseEasternWallClock(dateStr: string): string | null {
+    const m = dateStr.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (!m) return null;
+
+    const [, mo, d, y, h, min, sec, ap] = m;
+    let hour = parseInt(h, 10) % 12;
+    if (ap.toUpperCase() === 'PM') hour += 12;
+
+    // Treat the wall-clock as UTC, then subtract Eastern's offset at that
+    // instant (offset = Eastern wall-clock minus UTC, negative in practice).
+    const utcGuess = Date.UTC(+y, +mo - 1, +d, hour, +min, +(sec || 0));
+    const offsetMs = this.zoneOffsetMs(utcGuess, 'America/New_York');
+    return new Date(utcGuess - offsetMs).toISOString();
+  }
+
+  private zoneOffsetMs(utcMs: number, timeZone: string): number {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    });
+    const parts: Record<string, string> = {};
+    for (const p of dtf.formatToParts(new Date(utcMs))) {
+      parts[p.type] = p.value;
+    }
+    const zoneAsUtc = Date.UTC(
+      +parts.year, +parts.month - 1, +parts.day,
+      +parts.hour % 24, +parts.minute, +parts.second,
+    );
+    return zoneAsUtc - utcMs;
   }
 
   private generateId(title: string, timestamp: string): string {
