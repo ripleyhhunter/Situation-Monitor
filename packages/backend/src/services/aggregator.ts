@@ -586,9 +586,7 @@ class AggregatorService {
       cameras: this.flatten(s => s.cameras.values(), regionId),
       weather: this.flatten(s => s.weatherAlerts.values(), regionId),
       airQuality: this.flatten(s => s.airQuality, regionId),
-      currentWeather: regionId
-        ? ({ ...currentByRegion, ...(regionId === 'dc' ? { dc: this.getState('dc').currentWeather } : {}), ...(regionId === 'boise' ? { boise: this.getState('boise').currentWeather } : {}) })
-        : currentByRegion,
+      currentWeather: currentByRegion,
       aircraft: this.flatten(s => s.aircraft.values(), regionId),
       news: this.flatten(s => s.news, regionId),
     };

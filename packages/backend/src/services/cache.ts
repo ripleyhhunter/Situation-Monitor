@@ -24,6 +24,21 @@ class CacheService {
   private redisDisabled = false;
   private commandTimeout = 5000; // 5 second timeout for Redis commands
 
+  constructor() {
+    // Every set() writes the memory tier (even with Redis connected), and
+    // reads only prune lazily — without a sweep, expired entries accumulate
+    // for the lifetime of the process. unref() so the timer never keeps the
+    // process alive.
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, entry] of this.memoryCache) {
+        if (entry.expiry <= now) {
+          this.memoryCache.delete(key);
+        }
+      }
+    }, 60000).unref();
+  }
+
   async connect(): Promise<void> {
     try {
       // Use 127.0.0.1 instead of localhost for better Windows/Docker compatibility

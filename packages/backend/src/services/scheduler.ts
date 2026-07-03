@@ -5,7 +5,6 @@ interface ScheduledTask {
   name: string;
   task: cron.ScheduledTask;
   lastRun?: Date;
-  nextRun?: Date;
   running?: boolean;
 }
 
@@ -75,34 +74,6 @@ class SchedulerService {
     if (runImmediately) {
       wrappedHandler();
     }
-  }
-
-  /**
-   * Schedule a task to run at fixed intervals (in milliseconds)
-   */
-  scheduleInterval(
-    name: string,
-    intervalMs: number,
-    handler: () => Promise<void>,
-    runImmediately = true
-  ): void {
-    // Convert milliseconds to cron expression approximation
-    const seconds = Math.floor(intervalMs / 1000);
-
-    let cronExpression: string;
-
-    if (seconds < 60) {
-      // Run every N seconds (cron doesn't support sub-minute, so use 1 minute minimum)
-      cronExpression = '* * * * *'; // Every minute
-    } else if (seconds < 3600) {
-      const minutes = Math.floor(seconds / 60);
-      cronExpression = `*/${minutes} * * * *`; // Every N minutes
-    } else {
-      const hours = Math.floor(seconds / 3600);
-      cronExpression = `0 */${hours} * * *`; // Every N hours
-    }
-
-    this.schedule(name, cronExpression, handler, runImmediately);
   }
 
   /**

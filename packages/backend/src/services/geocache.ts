@@ -29,8 +29,20 @@ export interface GeocodeRegion {
  * name that exists in another city would otherwise be cached for 30 days). */
 const MAX_DISTANCE_KM = 60;
 
-// In-memory cache for fast lookups (populated from Redis on startup)
+// In-memory cache for fast lookups (populated from Redis on startup).
+// Capped: entries are never individually evicted, so without a bound the map
+// grows with every unique address for the lifetime of the process.
 const memoryCache = new Map<string, GeocodedLocation>();
+const MEMORY_CACHE_MAX = 5000;
+
+function boundedSet(key: string, value: GeocodedLocation): void {
+  if (memoryCache.size >= MEMORY_CACHE_MAX && !memoryCache.has(key)) {
+    // Map iteration order is insertion order — drop the oldest entry.
+    const oldest = memoryCache.keys().next().value;
+    if (oldest !== undefined) memoryCache.delete(oldest);
+  }
+  memoryCache.set(key, value);
+}
 
 // Rate limiting for Nominatim (1 request per second)
 let lastGeocodeTime = 0;
@@ -74,7 +86,7 @@ class GeocacheService {
           const data = await cache.get<GeocodedLocation>(key);
           if (data) {
             const address = key.replace(REDIS_PREFIX, '');
-            memoryCache.set(address, data);
+            boundedSet(address, data);
           }
         }
         
@@ -110,7 +122,7 @@ class GeocacheService {
 
     if (redisData) {
       // Populate memory cache
-      memoryCache.set(key, redisData);
+      boundedSet(key, redisData);
       return redisData;
     }
 
@@ -127,7 +139,7 @@ class GeocacheService {
       geocodedAt: new Date().toISOString(),
     };
 
-    memoryCache.set(key, data);
+    boundedSet(key, data);
     await cache.set(REDIS_PREFIX + key, data, CACHE_TTL_SECONDS);
   }
 
@@ -175,6 +187,7 @@ class GeocacheService {
         headers: {
           'User-Agent': 'SituationMonitor/1.0 (https://github.com/situation-monitor)',
         },
+        signal: AbortSignal.timeout(10000),
       });
       
       if (!response.ok) {
