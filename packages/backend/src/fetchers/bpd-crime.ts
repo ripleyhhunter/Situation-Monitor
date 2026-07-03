@@ -60,7 +60,7 @@ export class BPDCrimeFetcher extends BaseFetcher<Incident> {
     const params = new URLSearchParams({
       f: 'json',
       where: '1=1',
-      outFields: 'OBJECTID,DRNumber,IncidentType,CrimeCode,CrimeCodeDescription,CrimeCodeGroup,CrimeType,IncidentAddress,City,District,PatrolArea,LocationScene,Severity,ReportedDate,OccurredDateTime',
+      outFields: 'OBJECTID,ChargeID,DRNumber,IncidentType,CrimeCode,CrimeCodeDescription,CrimeCodeGroup,CrimeType,IncidentAddress,City,District,PatrolArea,LocationScene,Severity,ReportedDate,OccurredDateTime',
       orderByFields: 'OccurredDateTime DESC',
       resultRecordCount: '2000',
       returnGeometry: 'true',
@@ -104,7 +104,10 @@ export class BPDCrimeFetcher extends BaseFetcher<Incident> {
     const isoTs = new Date(ts).toISOString();
 
     return {
-      id: `bpd-crime-${a.DRNumber || a.OBJECTID}`,
+      // The layer is per-charge and ~21% of rows share a DRNumber (multiple
+      // charges on one incident report) — DRNumber alone silently collapses
+      // them in the id-keyed state Map. ChargeID discriminates the charges.
+      id: `bpd-crime-${a.DRNumber || a.OBJECTID}-${a.ChargeID ?? a.OBJECTID}`,
       type: 'crime',
       severity: this.mapSeverity(a.CrimeCodeGroup, a.Severity),
       location: {
