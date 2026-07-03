@@ -299,8 +299,17 @@
     panToSearchLocation($searchLocation);
   }
 
+  let searchMarkerTimer: ReturnType<typeof setTimeout> | null = null;
+
   function panToSearchLocation(location: { lat: number; lng: number; name: string }) {
     if (!map || !L) return;
+
+    // A pending removal timer from a previous search would otherwise fire
+    // and delete the NEW marker almost immediately.
+    if (searchMarkerTimer) {
+      clearTimeout(searchMarkerTimer);
+      searchMarkerTimer = null;
+    }
 
     // Pan to the location with a nice zoom level
     map.setView([location.lat, location.lng], 16);
@@ -327,7 +336,8 @@
     }
 
     // Clear the search marker after 10 seconds
-    setTimeout(() => {
+    searchMarkerTimer = setTimeout(() => {
+      searchMarkerTimer = null;
       if (searchMarker && map) {
         map.removeLayer(searchMarker);
         searchMarker = null;

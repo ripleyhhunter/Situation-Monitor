@@ -5,6 +5,11 @@
 
   export let camera: Camera;
 
+  // Flag-based image failure state: mutating img.src to '' in the error
+  // handler can re-fire the error event in a loop.
+  let imageFailed = false;
+  $: if (camera) imageFailed = false;
+
   const dispatch = createEventDispatcher();
 
   function close() {
@@ -83,20 +88,25 @@
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowfullscreen
         ></iframe>
-      {:else if camera.imageUrl}
+      {:else if camera.imageUrl && !imageFailed}
         <img
           src={camera.imageUrl}
           alt={camera.name}
           class="w-full h-full object-contain"
-          on:error={(e) => {
-            const target = e.currentTarget as HTMLImageElement;
-            target.src = '';
-            target.alt = 'Camera feed unavailable';
-          }}
+          on:error={() => (imageFailed = true)}
         />
         <!-- Refresh hint -->
         <div class="absolute bottom-2 right-2 text-xs text-white/70 bg-black/50 px-2 py-1 rounded">
           Image may be cached. Click refresh to update.
+        </div>
+      {:else if imageFailed}
+        <div class="w-full h-full flex items-center justify-center text-gray-400">
+          <div class="text-center p-4">
+            <svg class="w-16 h-16 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+            </svg>
+            <p class="text-sm">Camera feed unavailable</p>
+          </div>
         </div>
       {:else if camera.source === 'dc'}
         <!-- DC cameras don't have direct feeds -->

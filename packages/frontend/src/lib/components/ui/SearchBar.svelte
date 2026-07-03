@@ -40,19 +40,18 @@
         bounded: '1',
       });
 
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?${params}`,
-        {
-          headers: {
-            'User-Agent': 'SituationMonitor/1.0',
-          },
-        }
-      );
+      // Browsers forbid setting User-Agent on fetch (a custom header here is
+      // silently dropped); Nominatim identifies browser clients via Referer.
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
 
       if (response.ok) {
         const data = await response.json();
         results = data;
         showResults = results.length > 0;
+      } else {
+        console.warn(`Search failed: Nominatim returned ${response.status}`);
+        results = [];
+        showResults = false;
       }
     } catch (error) {
       console.error('Search failed:', error);

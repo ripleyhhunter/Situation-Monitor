@@ -13,9 +13,10 @@
   $: totalFiltered = $filteredIncidents.length;
   $: totalAll = Object.values($incidentCounts).reduce((a, b) => a + b, 0);
 
-  // Auto-switch to aircraft tab when aircraft is enabled, switch back when disabled
-  $: if ($filters.showAircraft && activeTab !== 'aircraft' && activeTab !== 'filters') {
-    // Only auto-switch if we weren't already on a specific tab
+  // The aircraft tab button hides when the layer is off — leave the tab too,
+  // otherwise the panel shows orphaned aircraft content with no active tab.
+  $: if (!$filters.showAircraft && activeTab === 'aircraft') {
+    activeTab = 'incidents';
   }
 </script>
 
