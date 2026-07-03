@@ -41,5 +41,9 @@ Thumbs.db
 # Test coverage
 coverage/
 
+# Playwright debug/test screenshots
+packages/backend/test-screenshots/
+packages/backend/pulsepoint-*.png
+
 # Startup script (personal)
 start-monitor.bat
