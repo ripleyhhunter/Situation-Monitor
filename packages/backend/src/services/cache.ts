@@ -161,6 +161,37 @@ class CacheService {
     }
   }
 
+  /**
+   * Atomically increment a counter with a fixed expiry window: the TTL is
+   * set when the key is created and NOT refreshed on later increments, so a
+   * steady stream of hits can never keep a window alive forever.
+   * Returns the post-increment count.
+   */
+  async increment(key: string, ttlSeconds: number): Promise<number> {
+    try {
+      if (this.redis && this.connected) {
+        const count = await withTimeout<number>(this.redis.incr(key), this.commandTimeout);
+        // NX = only set when no TTL exists — heals a missing TTL on any hit
+        // (e.g. if the expire after the first incr failed).
+        await withTimeout(this.redis.expire(key, ttlSeconds, 'NX'), this.commandTimeout).catch(() => {});
+        return count;
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.debug('Cache increment falling back to memory', { key, error: errorMessage });
+    }
+
+    // Memory fallback: fixed window — keep the original expiry.
+    const cached = this.memoryCache.get(key);
+    if (cached && cached.expiry > Date.now()) {
+      const next = (parseInt(cached.data, 10) || 0) + 1;
+      cached.data = String(next);
+      return next;
+    }
+    this.memoryCache.set(key, { data: '1', expiry: Date.now() + ttlSeconds * 1000 });
+    return 1;
+  }
+
   async del(key: string): Promise<void> {
     try {
       if (this.redis && this.connected) {

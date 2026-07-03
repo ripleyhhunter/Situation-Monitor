@@ -26,20 +26,29 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
   const { windowMs, maxRequests, keyPrefix } = { ...defaultConfig, ...config };
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    // Get client identifier (IP or API key)
-    const clientId = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    // Behind cloudflared every visitor's req.ip is 127.0.0.1 (one shared
+    // bucket for the whole world) — prefer the tunnel-provided client IP.
+    const cfIp = req.headers['cf-connecting-ip'];
+    const clientId = (typeof cfIp === 'string' && cfIp) || req.ip || 'unknown';
     const key = `${keyPrefix}:${clientId}`;
 
     try {
-      // Get current count with timeout (fail open if slow)
-      const current = await withTimeout(
-        cache.get<number>(key).then(v => v || 0),
-        500, // 500ms timeout
-        0 // If timeout, assume 0 requests
+      // Atomic fixed-window counter. The old read-then-set undercounted
+      // bursts AND re-armed the TTL on every hit, so a steady slow client
+      // (1 req/40s) eventually accumulated to the limit and got 429'd.
+      const count = await withTimeout<number | null>(
+        cache.increment(key, Math.ceil(windowMs / 1000)),
+        500, // 500ms budget — fail open if the cache is slow
+        null
       );
 
-      if (current >= maxRequests) {
-        logger.warn('Rate limit exceeded', { clientId, current, maxRequests });
+      if (count === null) {
+        next();
+        return;
+      }
+
+      if (count > maxRequests) {
+        logger.warn('Rate limit exceeded', { clientId, count, maxRequests });
         res.status(429).json({
           error: {
             message: 'Too many requests, please try again later',
@@ -50,16 +59,9 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
         return;
       }
 
-      // Increment counter with timeout (don't wait too long)
-      withTimeout(
-        cache.set(key, current + 1, Math.ceil(windowMs / 1000)),
-        500,
-        undefined
-      ).catch(() => {}); // Fire and forget
-
       // Add rate limit headers
       res.setHeader('X-RateLimit-Limit', maxRequests);
-      res.setHeader('X-RateLimit-Remaining', maxRequests - current - 1);
+      res.setHeader('X-RateLimit-Remaining', Math.max(0, maxRequests - count));
 
       next();
     } catch (error) {
