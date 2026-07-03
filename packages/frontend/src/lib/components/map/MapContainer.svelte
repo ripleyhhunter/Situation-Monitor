@@ -19,6 +19,18 @@
     map.setView($selectedRegion.defaultCenter, $selectedRegion.defaultZoom);
   }
 
+  // Third-party data (OpenSky metadata, Nominatim names, feed text) must be
+  // escaped before interpolation into popup HTML — Leaflet assigns string
+  // popup content via innerHTML.
+  function escapeHtml(value: string | number | undefined | null): string {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   let mapContainer: HTMLDivElement;
   let map: Leaflet.Map | null = null;
   let L: typeof import('leaflet') | null = null;
@@ -295,7 +307,7 @@
     // Add or update search marker
     if (searchMarker) {
       searchMarker.setLatLng([location.lat, location.lng]);
-      searchMarker.setPopupContent(`<strong>📍 ${location.name}</strong>`);
+      searchMarker.setPopupContent(`<strong>📍 ${escapeHtml(location.name)}</strong>`);
     } else {
       const icon = L.divIcon({
         className: '',
@@ -310,7 +322,7 @@
         iconAnchor: [16, 16],
       });
       searchMarker = L.marker([location.lat, location.lng], { icon, zIndexOffset: 900 }).addTo(map);
-      searchMarker.bindPopup(`<strong>📍 ${location.name}</strong>`).openPopup();
+      searchMarker.bindPopup(`<strong>📍 ${escapeHtml(location.name)}</strong>`).openPopup();
     }
 
     // Clear the search marker after 10 seconds
@@ -423,7 +435,7 @@
           fillOpacity: 0.2,
           weight: 2,
         });
-        polygon.bindPopup(`<strong>${alert.event}</strong><br>${alert.headline}`);
+        polygon.bindPopup(`<strong>${escapeHtml(alert.event)}</strong><br>${escapeHtml(alert.headline)}`);
         weatherLayers.addLayer(polygon);
       }
     }
@@ -574,17 +586,17 @@
       if (meta && Object.keys(meta).length > 0) {
         const parts = [];
         if (meta.manufacturer && meta.model) {
-          parts.push(`<div><strong>Aircraft:</strong> ${meta.manufacturer} ${meta.model}</div>`);
+          parts.push(`<div><strong>Aircraft:</strong> ${escapeHtml(meta.manufacturer)} ${escapeHtml(meta.model)}</div>`);
         } else if (meta.model) {
-          parts.push(`<div><strong>Model:</strong> ${meta.model}</div>`);
+          parts.push(`<div><strong>Model:</strong> ${escapeHtml(meta.model)}</div>`);
         }
         if (meta.registration) {
-          parts.push(`<div><strong>Registration:</strong> ${meta.registration}</div>`);
+          parts.push(`<div><strong>Registration:</strong> ${escapeHtml(meta.registration)}</div>`);
         }
         if (meta.operator) {
-          parts.push(`<div><strong>Operator:</strong> ${meta.operator}</div>`);
+          parts.push(`<div><strong>Operator:</strong> ${escapeHtml(meta.operator)}</div>`);
         } else if (meta.owner) {
-          parts.push(`<div><strong>Owner:</strong> ${meta.owner}</div>`);
+          parts.push(`<div><strong>Owner:</strong> ${escapeHtml(meta.owner)}</div>`);
         }
         if (parts.length > 0) {
           metadataHtml = `<hr style="margin: 6px 0; border: none; border-top: 1px solid #eee;">${parts.join('')}`;
@@ -593,8 +605,8 @@
       
       const popupContent = `
         <div style="min-width: 180px;">
-          <strong style="font-size: 14px;">${categoryIcon} ${plane.callsign}</strong>
-          <div style="font-size: 11px; color: #666; margin-top: 2px;">${plane.origin}</div>
+          <strong style="font-size: 14px;">${categoryIcon} ${escapeHtml(plane.callsign)}</strong>
+          <div style="font-size: 11px; color: #666; margin-top: 2px;">${escapeHtml(plane.origin)}</div>
           ${metadataHtml}
           <hr style="margin: 6px 0; border: none; border-top: 1px solid #eee;">
           <div style="font-size: 12px;">
@@ -602,7 +614,7 @@
             <div><strong>Speed:</strong> ${speedStr} kts</div>
             <div><strong>Heading:</strong> ${Math.round(plane.heading)}°</div>
             <div>${verticalIndicator} (${plane.verticalRate > 0 ? '+' : ''}${plane.verticalRate} ft/min)</div>
-            ${plane.squawk ? `<div><strong>Squawk:</strong> ${plane.squawk}${plane.isEmergency ? ' ⚠️' : ''}</div>` : ''}
+            ${plane.squawk ? `<div><strong>Squawk:</strong> ${escapeHtml(plane.squawk)}${plane.isEmergency ? ' ⚠️' : ''}</div>` : ''}
           </div>
         </div>
       `;
