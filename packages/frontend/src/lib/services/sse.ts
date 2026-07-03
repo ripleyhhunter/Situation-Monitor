@@ -34,6 +34,13 @@ class SSEService {
   private intentionallyClosed = false;
   private currentClientId: string | null = null;
 
+  // A dead stream doesn't always fire onerror (observed behind proxies: the
+  // upstream dies but the client socket stays open, silently). The server
+  // heartbeats every 30s, so >90s without one means the stream is dead.
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private lastEventAt = 0;
+  private static readonly STALE_STREAM_MS = 90000;
+
   constructor() {
     // Auto-reconnect on page visibility change
     if (typeof document !== 'undefined') {
@@ -51,6 +58,8 @@ class SSEService {
     }
 
     this.intentionallyClosed = false;
+    this.lastEventAt = Date.now();
+    this.startWatchdog();
     connectionStatus.set('connecting');
 
     // Default to wanting aircraft - filter store will update preference after connection
@@ -79,6 +88,7 @@ class SSEService {
       // we were disconnected don't linger as ghosts.
       clearAllIncidents();
       clearAllWeatherAlerts();
+      this.lastEventAt = Date.now();
       this.currentClientId = data.data.clientId;
       clientId.set(data.data.clientId);
       lastEventTime.set(data.timestamp);
@@ -89,6 +99,7 @@ class SSEService {
 
     this.eventSource.addEventListener('heartbeat', (event) => {
       const data = JSON.parse(event.data) as SSEEvent;
+      this.lastEventAt = Date.now();
       lastEventTime.set(data.timestamp);
     });
 
@@ -153,6 +164,16 @@ class SSEService {
     });
   }
 
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return;
+    this.watchdogTimer = setInterval(() => {
+      if (this.eventSource && Date.now() - this.lastEventAt > SSEService.STALE_STREAM_MS) {
+        console.warn('SSE stream stale (no heartbeat for 90s), forcing reconnect');
+        this.handleDisconnect();
+      }
+    }, 30000);
+  }
+
   private handleDisconnect(): void {
     if (this.eventSource) {
       this.eventSource.close();
@@ -190,6 +211,10 @@ class SSEService {
 
   disconnect(): void {
     this.intentionallyClosed = true;
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

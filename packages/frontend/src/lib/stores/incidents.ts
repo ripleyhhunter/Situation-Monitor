@@ -61,7 +61,10 @@ export const incidentsByType = derived(
 
     for (const incident of $incidents.values()) {
       if (incident.status === 'active' && incident.regionId === $regionId) {
-        byType[incident.type].push(incident);
+        // Guard against an IncidentType this build doesn't know yet — the
+        // Pages frontend and the manually-updated backend routinely skew,
+        // and one unknown type must not crash the whole store graph.
+        (byType[incident.type] ??= []).push(incident);
       }
     }
 
