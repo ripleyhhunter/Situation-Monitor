@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import { sse } from '../services/sse.js';
 import { aggregator } from '../services/aggregator.js';
+import { regionsById, defaultRegionId } from '../regions/index.js';
 import logger from '../logger.js';
 import type { Aircraft, NewsItem, RegionId } from '../types/index.js';
+
+/** Coerce an untrusted region value to a known RegionId. */
+function toRegionId(value: unknown): RegionId {
+  const raw = String(value ?? '').toLowerCase();
+  return raw in regionsById ? (raw as RegionId) : defaultRegionId;
+}
 
 const router = Router();
 
@@ -10,14 +17,16 @@ const router = Router();
 router.get('/', (req, res) => {
   logger.debug('New SSE connection request');
 
-  // Check if client is requesting aircraft data (default true for backwards compatibility)
-  const wantsAircraft = req.query.aircraft !== 'false';
+  // Aircraft is opt-in (saves OpenSky quota) — the frontend syncs its real
+  // preference right after 'connected'; ?aircraft=true&region=<id> can seed it.
+  const wantsAircraft = req.query.aircraft === 'true';
+  const aircraftRegion = wantsAircraft ? toRegionId(req.query.region) : null;
 
   // Add this client to SSE service
   const clientId = sse.addClient(res);
 
   // Update initial preferences based on query params
-  sse.updateClientPreferences(clientId, { wantsAircraft });
+  sse.updateClientPreferences(clientId, { aircraftRegion });
 
   // Send initial data dump to catch up the client
   const data = aggregator.getAll();
@@ -101,30 +110,29 @@ router.get('/', (req, res) => {
 
 // Update client preferences endpoint
 router.post('/preferences', (req, res) => {
-  const { clientId, wantsAircraft } = req.body;
+  const { clientId, wantsAircraft, regionId } = req.body;
 
   if (!clientId) {
     return res.status(400).json({ error: 'clientId is required' });
   }
 
-  const success = sse.updateClientPreferences(clientId, {
-    wantsAircraft: wantsAircraft ?? true,
-  });
+  const aircraftRegion = wantsAircraft ? toRegionId(regionId) : null;
+  const success = sse.updateClientPreferences(clientId, { aircraftRegion });
 
   if (!success) {
     return res.status(404).json({ error: 'Client not found' });
   }
 
-  logger.debug('Client preferences updated via API', { 
-    clientId, 
-    wantsAircraft,
+  logger.debug('Client preferences updated via API', {
+    clientId,
+    aircraftRegion,
     aircraftClients: sse.getAircraftClientCount(),
     totalClients: sse.getClientCount()
   });
 
-  return res.json({ 
-    success: true, 
-    aircraftFetchingActive: sse.anyClientWantsAircraft() 
+  return res.json({
+    success: true,
+    aircraftFetchingActive: aircraftRegion !== null && sse.anyClientWantsAircraftFor(aircraftRegion)
   });
 });
 

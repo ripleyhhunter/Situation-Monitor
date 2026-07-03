@@ -121,6 +121,12 @@ export function setTimeRange(range: FilterState['timeRange']): void {
 // Reset filters to default
 export function resetFilters(): void {
   filters.set(defaultFilters);
+
+  // Keep the server-side aircraft preference in sync (defaults have it off),
+  // otherwise the backend keeps polling OpenSky for a layer nobody shows.
+  import('$services/sse').then(({ sseService }) => {
+    sseService.updateAircraftPreference(defaultFilters.showAircraft);
+  });
 }
 
 // Helper function to filter by time

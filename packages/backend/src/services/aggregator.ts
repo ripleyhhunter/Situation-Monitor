@@ -230,10 +230,10 @@ class AggregatorService {
 
     const cronAircraft = this.buildCronExpression(config.pollIntervals.aircraft, '*/5 * * * * *');
     scheduler.schedule(`aircraft-${tag}`, cronAircraft, async () => {
-      if (sse.anyClientWantsAircraft()) {
+      if (sse.anyClientWantsAircraftFor(region.id)) {
         await this.fetchAircraft(region);
       } else {
-        logger.debug(`Skipping aircraft (${tag}) - no clients want aircraft data`);
+        logger.debug(`Skipping aircraft (${tag}) - no clients want aircraft data for this region`);
       }
     }, false);
 

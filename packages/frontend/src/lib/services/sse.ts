@@ -1,5 +1,7 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId } from '$types';
+import { filters } from '$stores/filters';
+import { selectedRegionId } from '$stores/region';
 import { upsertIncident, clearIncident, clearAllIncidents } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
 import {
@@ -80,6 +82,9 @@ class SSEService {
       this.currentClientId = data.data.clientId;
       clientId.set(data.data.clientId);
       lastEventTime.set(data.timestamp);
+      // The server defaults new connections to no-aircraft; push the actual
+      // preference so it survives reconnects (a new clientId each time).
+      this.syncAircraftPreference();
     });
 
     this.eventSource.addEventListener('heartbeat', (event) => {
@@ -203,6 +208,15 @@ class SSEService {
   }
 
   /**
+   * Push the current aircraft preference (from the filters store) and the
+   * selected region to the server. Called after every connect and whenever
+   * the selected region changes.
+   */
+  syncAircraftPreference(): void {
+    this.updateAircraftPreference(get(filters).showAircraft).catch(() => {});
+  }
+
+  /**
    * Update server about aircraft preference change
    * This helps the server save API quota when no clients want aircraft data
    */
@@ -220,6 +234,7 @@ class SSEService {
         body: JSON.stringify({
           clientId: this.currentClientId,
           wantsAircraft,
+          regionId: get(selectedRegionId),
         }),
       });
 
@@ -239,4 +254,11 @@ class SSEService {
 }
 
 export const sseService = new SSEService();
+
+// Re-sync the aircraft preference when the user switches regions so the
+// backend polls OpenSky for the region actually being viewed.
+selectedRegionId.subscribe(() => {
+  sseService.syncAircraftPreference();
+});
+
 export default sseService;
