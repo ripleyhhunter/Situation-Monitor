@@ -157,7 +157,7 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(url, { headers });
+      const response = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
       
       if (!response.ok) {
         if (response.status === 404) {
@@ -241,6 +241,7 @@ export class OpenSkyFetcher extends BaseFetcher<Aircraft> {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: body.toString(),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {

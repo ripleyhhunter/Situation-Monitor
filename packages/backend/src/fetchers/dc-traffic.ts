@@ -38,24 +38,21 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
   }
 
   protected async fetchFromApi(): Promise<Incident[]> {
-    const incidents: Incident[] = [];
-
-    // Fetch from both Road Closures (layer 1) and Road Blocks (layer 0)
+    // Fetch from both Road Closures (layer 1) and Road Blocks (layer 0).
+    // 'dc-traffic' is a complete-listing source, so a PARTIAL result (one
+    // layer failed) would cross-clear the failed layer's live incidents.
+    // Let a failure propagate instead: BaseFetcher records the error and
+    // serves the last complete snapshot from cache.
     const layers = [
       { id: 0, name: 'Road Blocks' },
       { id: 1, name: 'Road Closures' },
     ];
 
-    for (const layer of layers) {
-      try {
-        const layerIncidents = await this.fetchLayer(layer.id, layer.name);
-        incidents.push(...layerIncidents);
-      } catch (error) {
-        logger.warn(`Failed to fetch DC traffic layer ${layer.name}`, { error });
-      }
-    }
+    const results = await Promise.all(
+      layers.map((layer) => this.fetchLayer(layer.id, layer.name)),
+    );
 
-    return incidents;
+    return results.flat();
   }
 
   private async fetchLayer(layerId: number, layerName: string): Promise<Incident[]> {

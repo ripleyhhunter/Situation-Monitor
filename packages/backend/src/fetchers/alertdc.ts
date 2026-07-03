@@ -23,18 +23,14 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     const url = 'https://trainingtrack.hsema.dc.gov/NRss/RssFeed/AlertDCList';
 
     try {
-      const response = await fetch(url, {
+      // httpGetText gives the shared 30s AbortController timeout + retries —
+      // a raw fetch here could hang on a wedged upstream socket indefinitely.
+      const html = await this.httpGetText(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           Accept: 'text/html,application/xhtml+xml,*/*',
         },
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
 
       // Check if we got RSS or HTML
       if (html.trim().startsWith('<?xml') || html.includes('<rss') || html.includes('<feed')) {
