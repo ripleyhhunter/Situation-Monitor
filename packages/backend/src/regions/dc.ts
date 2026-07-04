@@ -10,11 +10,16 @@ import { pgCrimeFetcher } from '../fetchers/pg-crime.js';
 import { dcShotSpotterFetcher } from '../fetchers/dc-shotspotter.js';
 import { dcTrafficFetcher } from '../fetchers/dc-traffic.js';
 import { alertDCFetcher } from '../fetchers/alertdc.js';
+import { WzdxFetcher } from '../fetchers/wzdx.js';
+import { vdotFetcher } from '../fetchers/vdot.js';
+import { dc311Fetcher } from '../fetchers/dc-311.js';
 import { wmataFetcher } from '../fetchers/wmata.js';
 import { OpenMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
+import { UsgsQuakesFetcher } from '../fetchers/usgs-quakes.js';
+import { NwsGaugesFetcher } from '../fetchers/nws-gauges.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -52,6 +57,16 @@ const DC_NEWS_CONFIG = {
   ],
 };
 
+// MDOT's WZDx feed (via RITIS) regenerates every 60s — lane-level work
+// zone detail that complements the MD CHART incident feed.
+const mdWzdx = new WzdxFetcher({
+  source: 'md-wzdx',
+  url: 'https://filter.ritis.org/wzdx_v4.1/mdot.geojson',
+  regionId: 'dc',
+  label: 'MDOT WZDx',
+  bounds: { lamin: 38.3, lamax: 39.5, lomin: -77.7, lomax: -76.3 },
+});
+
 const dcPulsePoint = new PulsePointFetcher({
   regionId: 'dc',
   browserLat: DC_CENTER.lat,
@@ -79,7 +94,10 @@ export const dcRegion: RegionPack = {
 
   nwsZones: DC_NWS_ZONES,
 
-  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs'],
+  sourcesWithCompleteListing: [
+    'mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs',
+    'md-wzdx', 'vdot', 'nws-gauge', 'usgs-quake',
+  ],
 
   cameraFetchers: [
     mdchartCamerasFetcher,
@@ -90,6 +108,10 @@ export const dcRegion: RegionPack = {
   trafficIncidentFetchers: [
     mdchartIncidentsFetcher,
     dcTrafficFetcher,
+    mdWzdx,
+    // The only keyless NoVA incident source — Virginia's registered WZDx
+    // feed is token-gated.
+    vdotFetcher,
   ],
 
   crimeFetchers: [
@@ -104,11 +126,21 @@ export const dcRegion: RegionPack = {
 
   emergencyAlertFetchers: [
     alertDCFetcher,
+    // Near-real-time 311 intake filtered to situational categories
+    // (signals out, wires down, flooding, downed trees...).
+    dc311Fetcher,
     // Rarely non-empty for DC (brush fires do happen) — presence-implies-
     // active semantics keep the layer honestly empty otherwise.
     new WildfireFetcher({
       regionId: 'dc',
       bounds: { lamin: 38.3, lamax: 39.5, lomin: -77.7, lomax: -76.3 },
+    }),
+    // Rarely non-empty here (~1 event/30d in 200 km) — honestly quiet.
+    new UsgsQuakesFetcher({ regionId: 'dc', lat: DC_CENTER.lat, lng: DC_CENTER.lng }),
+    // Potomac (Little Falls, Georgetown, Alexandria), Anacostia, Rock Creek.
+    new NwsGaugesFetcher({
+      regionId: 'dc',
+      bbox: { xmin: -77.4, ymin: 38.7, xmax: -76.8, ymax: 39.1 },
     }),
   ],
 

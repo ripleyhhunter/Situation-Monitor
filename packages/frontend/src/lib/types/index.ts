@@ -22,12 +22,17 @@ export type DataSource =
   | 'wmata'
   | 'moco-crime'
   | 'pg-crime'
+  | 'md-wzdx'
+  | 'vdot'
+  | 'dc-311'
   // Boise region
   | 'bpd-crime'
   | 'ada-crime'
   | 'itd-wzdx'
   | 'achd'
   // Shared
+  | 'usgs-quake'
+  | 'nws-gauge'
   | 'nws'
   | 'airnow'
   | 'pulsepoint'
