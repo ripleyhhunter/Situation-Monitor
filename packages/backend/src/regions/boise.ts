@@ -4,6 +4,7 @@ import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { bpdCrimeFetcher } from '../fetchers/bpd-crime.js';
 import { ItdWzdxFetcher } from '../fetchers/itd-wzdx.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
+import { idaho511CamerasFetcher } from '../fetchers/idaho511-cameras.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -81,7 +82,7 @@ export const boiseRegion: RegionPack = {
   // ITD WZDx publishes complete state snapshots — absence implies cleared.
   sourcesWithCompleteListing: ['itd-wzdx'],
 
-  cameraFetchers: [boiseLandmarkWebcamsFetcher],
+  cameraFetchers: [boiseLandmarkWebcamsFetcher, idaho511CamerasFetcher],
   trafficIncidentFetchers: [itdWzdx],
   crimeFetchers: [bpdCrimeFetcher],
   shotspotterFetchers: [],

@@ -169,7 +169,7 @@
       <div class="flex items-center justify-between">
         <div class="text-sm text-gray-600 dark:text-gray-400">
           <p>Location: {camera.location.lat.toFixed(4)}, {camera.location.lng.toFixed(4)}</p>
-          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source.toUpperCase()}</p>
+          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source === 'idaho511' ? 'Idaho 511 / ITD' : camera.source.toUpperCase()}</p>
         </div>
         <div class="flex gap-2">
           {#if camera.imageUrl}
