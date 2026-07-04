@@ -8,6 +8,7 @@ import type {
   NewsItem,
   RegionId,
   DataSource,
+  ScannerCall,
 } from '../types/index.js';
 import type { RegionPack } from '../regions/types.js';
 import { allRegions } from '../regions/index.js';
@@ -33,6 +34,7 @@ interface RegionState {
   currentWeather: CurrentWeather | null;
   aircraft: Map<string, Aircraft>;
   news: NewsItem[];
+  scannerCalls: ScannerCall[];
 }
 
 interface AggregatedData {
@@ -65,6 +67,7 @@ class AggregatorService {
       currentWeather: null,
       aircraft: new Map(),
       news: [],
+      scannerCalls: [],
     };
   }
 
@@ -396,7 +399,19 @@ class AggregatorService {
     if (!region.scannerFetcher) return;
     const result = await region.scannerFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(region, result.data);
+      const state = this.getState(region.id);
+      // Rebroadcast only when the newest call actually changed — the
+      // 5-min cron mostly re-serves the fetcher cache.
+      const newestId = result.data[0]?.id;
+      const prevNewestId = state.scannerCalls[0]?.id;
+      if (newestId !== prevNewestId || result.data.length !== state.scannerCalls.length) {
+        state.scannerCalls = result.data;
+        sse.broadcast('scanner:update', {
+          regionId: region.id,
+          calls: result.data,
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
   }
 
@@ -651,6 +666,10 @@ class AggregatorService {
 
   getNews(regionId?: RegionId): NewsItem[] {
     return this.flatten(s => s.news, regionId);
+  }
+
+  getScannerCalls(regionId?: RegionId): ScannerCall[] {
+    return this.flatten(s => s.scannerCalls, regionId);
   }
 
   findRelatedNews(incidentTitle: string, incidentAddress?: string, incidentType?: string, regionId?: RegionId): NewsItem[] {

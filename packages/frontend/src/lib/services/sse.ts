@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId } from '$types';
+import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId, ScannerCall } from '$types';
 import { filters } from '$stores/filters';
 import { selectedRegionId } from '$stores/region';
 import { upsertIncident, clearIncident, pruneIncidentsExcept } from '$stores/incidents';
@@ -13,6 +13,7 @@ import {
 } from '$stores/weather';
 import { updateAircraft } from '$stores/aircraft';
 import { updateNews } from '$stores/news';
+import { updateScannerCalls } from '$stores/scanner';
 import { notifyIncident, notifyWeatherAlert } from './notifications';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -187,6 +188,12 @@ class SSEService {
     this.eventSource.addEventListener('news:update', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<{ regionId: RegionId; news: NewsItem[]; timestamp: string }>;
       updateNews(data.data.news);
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('scanner:update', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<{ regionId: RegionId; calls: ScannerCall[]; timestamp: string }>;
+      updateScannerCalls(data.data.regionId, data.data.calls);
       lastEventTime.set(data.timestamp);
     });
   }

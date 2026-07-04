@@ -1,5 +1,5 @@
 import type { BaseFetcher } from '../fetchers/base.js';
-import type { Aircraft, AirQuality, Camera, CurrentWeather, Incident, RegionId, WeatherAlert } from '../types/index.js';
+import type { Aircraft, AirQuality, Camera, CurrentWeather, Incident, RegionId, ScannerCall, WeatherAlert } from '../types/index.js';
 import type { NewsFetcher } from '../fetchers/news.js';
 
 export type { RegionId };
@@ -57,7 +57,7 @@ export interface RegionPack {
 
   pulsePointFetcher: BaseFetcher<Incident> | null;
   transitFetcher: BaseFetcher<Incident> | null;
-  scannerFetcher: BaseFetcher<Incident> | null;
+  scannerFetcher: BaseFetcher<ScannerCall> | null;
   twitterFetcher: BaseFetcher<Incident> | null;
 
   // Shared fetchers — region-instantiated so each region tags its data.

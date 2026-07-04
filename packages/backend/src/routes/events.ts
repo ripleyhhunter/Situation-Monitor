@@ -3,7 +3,7 @@ import { sse } from '../services/sse.js';
 import { aggregator } from '../services/aggregator.js';
 import { regionsById, defaultRegionId } from '../regions/index.js';
 import logger from '../logger.js';
-import type { Aircraft, NewsItem, RegionId } from '../types/index.js';
+import type { Aircraft, NewsItem, RegionId, ScannerCall } from '../types/index.js';
 
 /** Coerce an untrusted region value to a known RegionId. */
 function toRegionId(value: unknown): RegionId {
@@ -94,6 +94,22 @@ router.get('/', (req, res) => {
     res.write(`data: ${JSON.stringify({
       type: 'aircraft:update',
       data: { regionId, aircraft, timestamp: new Date().toISOString() },
+      timestamp: new Date().toISOString(),
+    })}\n\n`);
+  }
+
+  // Send scanner calls per region (same shape as the periodic broadcast)
+  const scannerByRegion = new Map<RegionId, ScannerCall[]>();
+  for (const call of aggregator.getScannerCalls()) {
+    const list = scannerByRegion.get(call.regionId) || [];
+    list.push(call);
+    scannerByRegion.set(call.regionId, list);
+  }
+  for (const [regionId, calls] of scannerByRegion) {
+    res.write(`event: scanner:update\n`);
+    res.write(`data: ${JSON.stringify({
+      type: 'scanner:update',
+      data: { regionId, calls, timestamp: new Date().toISOString() },
       timestamp: new Date().toISOString(),
     })}\n\n`);
   }

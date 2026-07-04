@@ -30,9 +30,7 @@ export type DataSource =
   // Shared
   | 'nws'
   | 'airnow'
-  | 'openmhz'
   | 'pulsepoint'
-  | 'scanner'
   | 'wfigs';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
@@ -191,6 +189,23 @@ export interface NewsItem {
   };
 }
 
+// Scanner call (radio archive) — audio metadata, not a map incident.
+export interface ScannerCall {
+  id: string;
+  regionId: RegionId;
+  systemId: string;
+  systemLabel: string;
+  talkgroup: number;
+  talkgroupName?: string;
+  talkgroupDescription?: string;
+  time: string;
+  durationSec: number;
+  audioUrl: string;
+  frequencyMhz?: number;
+  emergency?: boolean;
+  units?: string[];
+}
+
 // SSE Event types
 export type SSEEventType =
   | 'incident:new'
@@ -204,6 +219,7 @@ export type SSEEventType =
   | 'aqi:update'
   | 'aircraft:update'
   | 'news:update'
+  | 'scanner:update'
   | 'heartbeat'
   | 'connected';
 
