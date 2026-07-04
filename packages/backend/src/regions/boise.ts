@@ -6,6 +6,8 @@ import { adaCrimeFetcher } from '../fetchers/ada-crime.js';
 import { achdClosuresFetcher } from '../fetchers/achd-closures.js';
 import { WzdxFetcher } from '../fetchers/wzdx.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
+import { UsgsQuakesFetcher } from '../fetchers/usgs-quakes.js';
+import { NwsGaugesFetcher } from '../fetchers/nws-gauges.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
 import { idaho511CamerasFetcher } from '../fetchers/idaho511-cameras.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
@@ -82,6 +84,18 @@ const boiseWildfire = new WildfireFetcher({
   bounds: { lamin: 42.5, lamax: 45.0, lomin: -117.5, lomax: -114.5 },
 });
 
+const boiseQuakes = new UsgsQuakesFetcher({
+  regionId: 'boise',
+  lat: BOISE_CENTER.lat,
+  lng: BOISE_CENTER.lng,
+});
+
+// Boise River gauges through town plus the lower valley.
+const boiseGauges = new NwsGaugesFetcher({
+  regionId: 'boise',
+  bbox: { xmin: -116.8, ymin: 43.4, xmax: -115.85, ymax: 43.95 },
+});
+
 export const boiseRegion: RegionPack = {
   id: 'boise',
   name: 'Boise, ID',
@@ -99,7 +113,10 @@ export const boiseRegion: RegionPack = {
   // Complete-snapshot sources — absence from a successful poll implies
   // cleared/ended: ITD WZDx and ACHD RITA are full listings, and WFIGS
   // "Current" removes fires once contained/out.
-  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs'],
+  // 'nws-gauge' emits only currently-flooding gauges — absence implies
+  // the water receded. 'usgs-quake' is a complete snapshot of its rolling
+  // 7-day window — absence means the event aged out or USGS deleted it.
+  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs', 'nws-gauge', 'usgs-quake'],
 
   cameraFetchers: [boiseLandmarkWebcamsFetcher, idaho511CamerasFetcher],
   trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher],
@@ -109,7 +126,7 @@ export const boiseRegion: RegionPack = {
   // Boise PD rows backfill over 1-3 months and are excluded there.
   crimeFetchers: [bpdCrimeFetcher, adaCrimeFetcher],
   shotspotterFetchers: [],
-  emergencyAlertFetchers: [boiseWildfire],
+  emergencyAlertFetchers: [boiseWildfire, boiseQuakes, boiseGauges],
 
   pulsePointFetcher: boisePulsePoint,
   // Valley Regional Transit publishes only GTFS-realtime protobuf (no JSON

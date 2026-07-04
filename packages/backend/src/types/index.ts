@@ -31,6 +31,8 @@ export type DataSource =
   | 'itd-wzdx'        // Idaho Transportation Dept work zones
   | 'achd'            // Ada County Highway District roadwork/closures
   // Shared / cross-region
+  | 'usgs-quake'      // USGS FDSN earthquakes (point-radius per region)
+  | 'nws-gauge'       // NWS river gauges at/above action stage
   | 'nws'
   | 'airnow'
   | 'openmhz'
