@@ -23,8 +23,13 @@ import logger from '../logger.js';
  *
  * Complete listing: presence in the layer is the lifecycle — ITD removes
  * events when cleared, so an empty poll is a quiet road network, not an
- * error. Shape drift (missing item2 / data arrays, unparseable dates) still
- * throws loudly per the fetcher contract.
+ * error. Shape drift (missing item2 / data arrays, unparseable dates,
+ * a join that stops matching) still throws loudly per the fetcher contract.
+ *
+ * The two layers are NOT deduped against each other: an official ITD entry
+ * and its Waze crowd report for the same crash may both plot. Accepted —
+ * ids are namespaced per layer, and independent confirmation of a crash is
+ * signal, not noise.
  */
 
 const MAP_ICONS_BASE = 'https://511.idaho.gov/map/mapIcons';
@@ -34,7 +39,10 @@ const LAYERS = ['Incidents', 'WazeIncidents'] as const;
 type LayerName = (typeof LAYERS)[number];
 
 const PAGE_SIZE = 100; // server-enforced cap (same platform as cameras)
-const MAX_PAGES = 5;
+// Statewide live events run well under 100 today, but a major winter storm
+// spikes Waze reports exactly when this feed matters most — keep the same
+// 1000-row headroom the camera roster gets.
+const MAX_PAGES = 10;
 
 // Treasure Valley — matches the region's other bbox filters.
 const BOUNDS = { lamin: 43.40, lamax: 43.95, lomin: -116.80, lomax: -115.85 };
@@ -64,6 +72,7 @@ export interface Idaho511EventRow {
   direction?: string | null;
   locationDescription?: string | null;
   laneDescription?: string | null;
+  showOnMap?: boolean;
 }
 
 interface ListResponse {
@@ -117,7 +126,8 @@ export function classifyIdaho511Event(row: Idaho511EventRow): Classification | n
   if (sub.startsWith('ACCIDENT') || /crash|collision|accident|rollover|overturn|jack-?knif/.test(text)) {
     return { type: 'traffic', severity: major ? 4 : 3, label: 'Crash' };
   }
-  if (/\bfire\b/.test(text)) {
+  if (/\bfire\b/.test(text) && !/hydrant/i.test(text)) {
+    // "vehicle fire", "brush fire" — but a sheared fire hydrant is a hazard.
     return { type: 'fire', severity: 3, label: 'Fire' };
   }
   if (sub.startsWith('HAZARD_ON_ROAD')) {
@@ -236,13 +246,25 @@ export class Idaho511EventsFetcher extends BaseFetcher<Incident> {
         throw new Error(`Idaho 511 events: fetched ${rows.length} of ${total} ${layer} rows — pagination truncated`);
       }
 
+      let mappable = 0;
+      let joined = 0;
       for (const row of rows) {
-        const incident = normalizeIdaho511Event(
-          row,
-          layer,
-          row.id != null ? positions.get(String(row.id)) : undefined,
-        );
+        const position = row.id != null ? positions.get(String(row.id)) : undefined;
+        if (row.showOnMap !== false) mappable++;
+        if (position) joined++;
+        const incident = normalizeIdaho511Event(row, layer, position);
         if (incident) incidents.push(incident);
+      }
+      // Rows without icon positions would silently drop — and a join-key
+      // format change (itemId prefixes, string ids) would then return []
+      // as a false success, cross-clearing every active event and going
+      // permanently dark. Zero joins across a non-empty mappable list is
+      // drift, not quiet roads. (Out-of-valley rows still JOIN — both
+      // endpoints are statewide — they're excluded later by the bbox.)
+      if (mappable > 0 && joined === 0) {
+        throw new Error(
+          `Idaho 511 events: ${layer} has ${mappable} mappable rows but none matched a map icon — join drift`,
+        );
       }
     }
 

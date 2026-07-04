@@ -43,10 +43,21 @@
         brandNew.forEach(i => newIncidentIds.add(i.id));
         newIncidentIds = newIncidentIds; // Trigger reactivity
         
-        // Auto-scroll to top if user isn't actively scrolling
+        // Auto-scroll to the highest-ranked new item if the user isn't
+        // actively scrolling — with priority ordering a new crash can sort
+        // mid-list, where a plain scroll-to-top would miss it.
         if (!userScrolling && listContainer) {
+          const brandNewIds = new Set(brandNew.map(i => i.id));
           tick().then(() => {
-            listContainer.scrollTo({ top: 0, behavior: 'smooth' });
+            const first = sortedIncidents.find(i => brandNewIds.has(i.id));
+            const el = first
+              ? listContainer.querySelector(`[data-incident-id="${CSS.escape(first.id)}"]`)
+              : null;
+            if (el) {
+              el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            } else {
+              listContainer.scrollTo({ top: 0, behavior: 'smooth' });
+            }
           });
         }
         
@@ -97,10 +108,11 @@
   {:else}
     <ul class="divide-y divide-gray-100 dark:divide-gray-700">
       {#each sortedIncidents as incident (incident.id)}
-        <li 
+        <li
           class="transition-all duration-300"
           class:animate-slide-in={newIncidentIds.has(incident.id)}
           style="opacity: {getListItemOpacity(incident)}"
+          data-incident-id={incident.id}
         >
           <button
             on:click={() => selectIncident(incident)}

@@ -77,6 +77,12 @@ describe('classifyIdaho511Event', () => {
     expect(classifyIdaho511Event({ description: 'Vehicle fire on shoulder' })?.type).toBe('fire');
   });
 
+  it('does not type a sheared fire hydrant as fire', () => {
+    expect(
+      classifyIdaho511Event({ description: 'Fire hydrant sheared, water on roadway' })?.type,
+    ).toBe('hazard');
+  });
+
   it('grades hazards: on-road above shoulder', () => {
     expect(classifyIdaho511Event({ eventSubType: 'HAZARD_ON_ROAD_OBJECT' })?.severity).toBe(3);
     expect(classifyIdaho511Event(wazeRow)?.severity).toBe(2);
