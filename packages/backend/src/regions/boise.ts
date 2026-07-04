@@ -7,6 +7,7 @@ import { achdClosuresFetcher } from '../fetchers/achd-closures.js';
 import { ItdWzdxFetcher } from '../fetchers/itd-wzdx.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
+import { idaho511CamerasFetcher } from '../fetchers/idaho511-cameras.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -94,7 +95,7 @@ export const boiseRegion: RegionPack = {
   // "Current" removes fires once contained/out.
   sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs'],
 
-  cameraFetchers: [boiseLandmarkWebcamsFetcher],
+  cameraFetchers: [boiseLandmarkWebcamsFetcher, idaho511CamerasFetcher],
   trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher],
   // Two crime sources, partitioned by agency so nothing double-plots:
   // bpd-crime is the city's own layer (freshest available for Boise PD);

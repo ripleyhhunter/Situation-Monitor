@@ -118,16 +118,46 @@ export abstract class BaseFetcher<T> {
     return this.httpRequest(url, options, (response) => response.text());
   }
 
+  /**
+   * POST a form-encoded body and parse a JSON response (some endpoints —
+   * e.g. DataTables-style List/GetData — silently return empty on GET).
+   */
+  protected async httpPostForm<R>(
+    url: string,
+    form: Record<string, string>,
+    options: {
+      headers?: Record<string, string>;
+      timeout?: number;
+      retries?: number;
+    } = {}
+  ): Promise<R> {
+    return this.httpRequest(
+      url,
+      {
+        ...options,
+        method: 'POST',
+        body: new URLSearchParams(form).toString(),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          ...options.headers,
+        },
+      },
+      (response) => response.json() as Promise<R>
+    );
+  }
+
   private async httpRequest<R>(
     url: string,
     options: {
       headers?: Record<string, string>;
       timeout?: number;
       retries?: number;
+      method?: string;
+      body?: string;
     },
     parse: (response: Response) => Promise<R>
   ): Promise<R> {
-    const { headers = {}, timeout = 30000, retries = 2 } = options;
+    const { headers = {}, timeout = 30000, retries = 2, method = 'GET', body } = options;
 
     let lastError: Error | null = null;
 
@@ -137,6 +167,8 @@ export abstract class BaseFetcher<T> {
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
         const response = await fetch(url, {
+          method,
+          body,
           headers: {
             Accept: 'application/json',
             'User-Agent': 'SituationMonitor/1.0',
