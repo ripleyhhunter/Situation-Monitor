@@ -4,6 +4,7 @@
   import { selectIncident } from '$stores/incidents';
   import { formatRelativeTime, getAgeBasedOpacity, isNewIncident, isFreshIncident, getAgeInMinutes } from '$utils/time';
   import { getSeverityColor, getSeverityLabel, getIncidentTypeName } from '$utils/format';
+  import { feedRank } from '$utils/feedRank';
 
   export let incidents: Incident[] = [];
 
@@ -13,9 +14,11 @@
   let userScrolling = false;
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Sort by timestamp (newest first), then by severity
+  // Public-safety first (see feedRank), then newest, then severity
   $: sortedIncidents = [...incidents].sort((a, b) => {
-    // Critical incidents first within same time bucket
+    // Live responder events above roadwork/ongoing situations, always
+    const rankDiff = feedRank(a) - feedRank(b);
+    if (rankDiff !== 0) return rankDiff;
     const timeDiff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     // If within 5 minutes of each other, sort by severity
     if (Math.abs(timeDiff) < 5 * 60 * 1000 && a.severity !== b.severity) {

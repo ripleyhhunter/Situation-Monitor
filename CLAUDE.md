@@ -16,7 +16,8 @@ only set the *default/initial* selection. Current regions:
   MoCo/PG crime, OpenMHz DC Fire & EMS scanner audio)
 - **`boise`** — Boise / Ada County / Treasure Valley (PulsePoint EMS1169
   ACCESS, BPD Crimes ArcGIS, Ada County CrimeMapper, ITD WZDx + ACHD RITA
-  roadwork, Idaho 511 cameras, NWS Boise webcams)
+  roadwork, Idaho 511 live incidents + Waze reports, Idaho 511 cameras,
+  NWS Boise webcams)
 
 Shared (region-agnostic) fetchers: NWS weather alerts, Open-Meteo current
 conditions, AirNow, OpenSky aircraft, news RSS, NIFC WFIGS wildfires, USGS
@@ -177,6 +178,7 @@ modules exist; the table below covers the notable ones.
 | `current-weather.ts` | Open-Meteo | Current conditions | 5 min | No API key needed |
 | `wmata.ts` | WMATA API | Metro alerts | 30 sec | Requires API key |
 | `airnow.ts` | AirNow API | Air quality | 30 min | Requires API key |
+| `idaho511-events.ts` | Idaho 511 | Live crashes/hazards | 1 min | ITD `Incidents` + `WazeIncidents` layers; complete listing; jams/closure reports dropped |
 | `openmhz.ts` | OpenMHz | Scanner calls | 5 min | Archived transmissions |
 | `dcfireems-twitter.ts` | Twitter/X | Fire/EMS tweets | 2 min | Optional, $100/mo API |
 | `landmark-webcams.ts` | Multiple | Curated webcams | 5 min | 23 cameras (Senate, NPS, FOX5, etc.) |
