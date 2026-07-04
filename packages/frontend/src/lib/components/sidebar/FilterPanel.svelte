@@ -17,6 +17,7 @@
   import { aircraftCounts } from '$stores/aircraft';
   import { selectedRegionId } from '$stores/region';
   import { getIncidentTypeName, getIncidentTypeColor, getSeverityColor, getSeverityLabel } from '$utils/format';
+  import NotificationSettings from './NotificationSettings.svelte';
   import type { IncidentType, FilterState, Jurisdiction } from '$types';
 
   const incidentTypes: IncidentType[] = ['traffic', 'crime', 'fire', 'transit', 'gunshot', 'hazard'];
@@ -229,6 +230,9 @@
       {/if}
     </div>
   </div>
+
+  <!-- Notifications -->
+  <NotificationSettings />
 
   <!-- Reset Button -->
   <button
