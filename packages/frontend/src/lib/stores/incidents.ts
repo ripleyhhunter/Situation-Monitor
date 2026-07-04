@@ -21,13 +21,12 @@ export function removeIncident(id: string): void {
   });
 }
 
-// Clear an incident (mark as cleared)
+// Drop an incident when the server clears it. Nothing in the UI renders
+// non-active incidents, so keeping them would only grow the Map for the
+// lifetime of the tab.
 export function clearIncident(id: string): void {
   incidents.update((map) => {
-    const incident = map.get(id);
-    if (incident) {
-      map.set(id, { ...incident, status: 'cleared' });
-    }
+    map.delete(id);
     return new Map(map);
   });
 }
@@ -35,6 +34,21 @@ export function clearIncident(id: string): void {
 // Clear all incidents
 export function clearAllIncidents(): void {
   incidents.set(new Map());
+}
+
+// Drop every incident whose id was not re-sent in a reconnect snapshot —
+// removes stale ghosts without an intermediate empty state.
+export function pruneIncidentsExcept(keep: Set<string>): void {
+  incidents.update((map) => {
+    let changed = false;
+    for (const id of map.keys()) {
+      if (!keep.has(id)) {
+        map.delete(id);
+        changed = true;
+      }
+    }
+    return changed ? new Map(map) : map;
+  });
 }
 
 // Derived store for active incidents in the currently selected region.
@@ -62,7 +76,10 @@ export const incidentsByType = derived(
 
     for (const incident of $incidents.values()) {
       if (incident.status === 'active' && incident.regionId === $regionId) {
-        byType[incident.type].push(incident);
+        // Guard against an IncidentType this build doesn't know yet — the
+        // Pages frontend and the manually-updated backend routinely skew,
+        // and one unknown type must not crash the whole store graph.
+        (byType[incident.type] ??= []).push(incident);
       }
     }
 

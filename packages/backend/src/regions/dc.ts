@@ -59,6 +59,9 @@ const dcPulsePoint = new PulsePointFetcher({
   agencyMatcher: /DC Fire and EMS|District of Columbia Fire/i,
   cityPattern: /WASHINGTON,\s*DC/i,
   titlePrefix: 'DCFD',
+  timezone: 'America/New_York',
+  geocodeCity: 'Washington',
+  geocodeState: 'DC',
   fallbackCenter: { lat: 38.8899, lng: -77.0091 },
   useDcQuadrantFallback: true,
 });

@@ -35,6 +35,10 @@ class DatabaseService {
     }
   }
 
+  deleteIncident(id: string): void {
+    this.incidents.delete(id);
+  }
+
   // Camera methods
   upsertCamera(camera: Camera): void {
     this.cameras.set(camera.id, camera);

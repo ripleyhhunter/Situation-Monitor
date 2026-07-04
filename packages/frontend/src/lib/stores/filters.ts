@@ -16,13 +16,18 @@ const defaultFilters: FilterState = {
   timeRange: '24h',
 };
 
-// Map data sources to jurisdictions
-function getJurisdictionForSource(source: DataSource): Jurisdiction | null {
-  switch (source) {
+// Map an incident to a jurisdiction. Jurisdictions (DC/MoCo/PG) are a
+// DC-region concept — incidents from other regions are never filtered by
+// them (a Boise PulsePoint incident is not "Washington, DC").
+function getJurisdictionForIncident(incident: Incident): Jurisdiction | null {
+  if (incident.regionId !== 'dc') return null;
+
+  switch (incident.source as DataSource) {
     case 'dc-crime':
     case 'dc-shotspotter':
     case 'dc-traffic':
     case 'alertdc':
+    case 'dcfireems-twitter':
     case 'pulsepoint':
       return 'dc';
     case 'moco-crime':
@@ -117,6 +122,12 @@ export function setTimeRange(range: FilterState['timeRange']): void {
 // Reset filters to default
 export function resetFilters(): void {
   filters.set(defaultFilters);
+
+  // Keep the server-side aircraft preference in sync (defaults have it off),
+  // otherwise the backend keeps polling OpenSky for a layer nobody shows.
+  import('$services/sse').then(({ sseService }) => {
+    sseService.updateAircraftPreference(defaultFilters.showAircraft);
+  });
 }
 
 // Helper function to filter by time
@@ -146,7 +157,7 @@ export const filteredIncidents = derived(
       }
 
       // Check jurisdiction (only for sources that have a jurisdiction)
-      const jurisdiction = getJurisdictionForSource(incident.source);
+      const jurisdiction = getJurisdictionForIncident(incident);
       if (jurisdiction !== null && !$filters.jurisdictions.has(jurisdiction)) {
         return false;
       }

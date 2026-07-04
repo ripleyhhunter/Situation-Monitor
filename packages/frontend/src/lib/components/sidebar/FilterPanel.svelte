@@ -15,6 +15,7 @@
   } from '$stores/filters';
   import { incidentCounts } from '$stores/incidents';
   import { aircraftCounts } from '$stores/aircraft';
+  import { selectedRegionId } from '$stores/region';
   import { getIncidentTypeName, getIncidentTypeColor, getSeverityColor, getSeverityLabel } from '$utils/format';
   import type { IncidentType, FilterState, Jurisdiction } from '$types';
 
@@ -62,7 +63,8 @@
     </div>
   </div>
 
-  <!-- Jurisdictions -->
+  <!-- Jurisdictions (a DC-region concept — hidden elsewhere) -->
+  {#if $selectedRegionId === 'dc'}
   <div>
     <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Jurisdictions</h3>
     <div class="space-y-2">
@@ -90,6 +92,7 @@
       Filter crime data by region
     </p>
   </div>
+  {/if}
 
   <!-- Severity Filter -->
   <div>

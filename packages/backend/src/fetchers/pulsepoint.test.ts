@@ -1,17 +1,21 @@
 /**
  * PulsePoint Fetcher Test
- * 
- * Run with: npx vitest run src/fetchers/pulsepoint.test.ts
+ *
+ * Live E2E against web.pulsepoint.org — skipped by default so the unit
+ * suite stays fast, offline, and deterministic.
+ *
+ * Run with: RUN_E2E=1 npx vitest run src/fetchers/pulsepoint.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, beforeAll, afterAll } from 'vitest';
 import { chromium, Browser, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
-const SCREENSHOT_DIR = 'C:/Users/Ripley/Situation-Monitor/packages/backend/test-screenshots';
+const SCREENSHOT_DIR = path.join(os.tmpdir(), 'pulsepoint-e2e-screenshots');
 
-describe('PulsePoint Fetcher', () => {
+describe.skipIf(!process.env.RUN_E2E)('PulsePoint Fetcher', () => {
   let browser: Browser;
   let page: Page;
 

@@ -18,6 +18,7 @@ export type DataSource =
   | 'dc-shotspotter'
   | 'dc-traffic'
   | 'alertdc'
+  | 'dcfireems-twitter'
   | 'wmata'
   | 'moco-crime'
   | 'pg-crime'

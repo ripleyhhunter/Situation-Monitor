@@ -1,41 +1,34 @@
 import { BaseFetcher } from './base.js';
 import type { Incident } from '../types/index.js';
 import config from '../config.js';
-import logger from '../logger.js';
 
-interface MDChartEvent {
+// Both CHART endpoints return { data: [...] } with a shared record shape.
+// Road/location info is embedded in the description ("Event @ ROAD ..."),
+// timestamps are epoch milliseconds.
+interface MDChartRecord {
   id: string;
-  description: string;
-  type: string;
-  lat: number;
-  lon: number;
-  roadway?: string;
+  name?: string;
+  description?: string;
+  incidentType?: string;
+  county?: string;
   direction?: string;
-  startTime?: string;
-  updateTime?: string;
-  severity?: string;
+  lat?: number;
+  lon?: number;
+  closed?: boolean;
+  trafficAlert?: boolean;
+  lanesClosed?: string;
+  startDateTime?: number;
+  createTime?: number;
+  lastCachedDataUpdateTime?: number;
 }
 
-interface MDChartEventResponse {
-  events?: MDChartEvent[];
-}
-
-interface MDChartClosure {
-  id: string;
-  description: string;
-  lat: number;
-  lon: number;
-  roadway?: string;
-  direction?: string;
-  startTime?: string;
-  endTime?: string;
-}
-
-interface MDChartClosureResponse {
-  closures?: MDChartClosure[];
+interface MDChartResponse {
+  data?: MDChartRecord[];
 }
 
 export class MDChartIncidentsFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'mdchart' as const;
+
   constructor() {
     super('mdchart-incidents', config.cacheTtl.trafficIncidents);
   }
@@ -68,143 +61,81 @@ export class MDChartIncidentsFetcher extends BaseFetcher<Incident> {
   }
 
   private async fetchEvents(): Promise<Incident[]> {
-    try {
-      const url =
-        'https://chartexp1.sha.maryland.gov/CHARTExportClientService/getEventMapDataJSON.do';
-      const response = await this.httpGet<MDChartEventResponse>(url);
+    const url =
+      'https://chartexp1.sha.maryland.gov/CHARTExportClientService/getEventMapDataJSON.do';
+    const response = await this.httpGet<MDChartResponse>(url);
 
-      if (!response.events || !Array.isArray(response.events)) {
-        return [];
-      }
-
-      return response.events.map((event) => this.normalizeEvent(event));
-    } catch (error) {
-      logger.error('Failed to fetch MD CHART events', { error });
-      return [];
+    if (!response.data || !Array.isArray(response.data)) {
+      // A missing envelope means the API contract changed — surface the
+      // failure so BaseFetcher records an error and serves stale data,
+      // instead of caching an empty "success".
+      throw new Error('MD CHART events: unexpected response shape (no data array)');
     }
+
+    return response.data
+      .filter((r) => !r.closed && typeof r.lat === 'number' && typeof r.lon === 'number')
+      .map((r) => this.normalizeRecord(r, 'event'));
   }
 
   private async fetchClosures(): Promise<Incident[]> {
-    try {
-      const url =
-        'https://chartexp1.sha.maryland.gov/CHARTExportClientService/getActiveClosureMapDataJSON.do';
-      const response = await this.httpGet<MDChartClosureResponse>(url);
+    const url =
+      'https://chartexp1.sha.maryland.gov/CHARTExportClientService/getActiveClosureMapDataJSON.do';
+    const response = await this.httpGet<MDChartResponse>(url);
 
-      if (!response.closures || !Array.isArray(response.closures)) {
-        return [];
-      }
-
-      return response.closures.map((closure) => this.normalizeClosure(closure));
-    } catch (error) {
-      logger.error('Failed to fetch MD CHART closures', { error });
-      return [];
+    if (!response.data || !Array.isArray(response.data)) {
+      throw new Error('MD CHART closures: unexpected response shape (no data array)');
     }
+
+    return response.data
+      .filter((r) => !r.closed && typeof r.lat === 'number' && typeof r.lon === 'number')
+      .map((r) => this.normalizeRecord(r, 'closure'));
   }
 
-  private normalizeEvent(event: MDChartEvent): Incident {
+  private normalizeRecord(record: MDChartRecord, kind: 'event' | 'closure'): Incident {
+    const fallbackTitle = kind === 'closure' ? 'Road Closure' : 'Traffic Incident';
+    const title = record.name || record.description || fallbackTitle;
+    // Descriptions look like "Disabled Vehicle Event @ I-70 WEST AT MM 40.0"
+    const road = record.description?.split('@')[1]?.trim();
     const now = new Date().toISOString();
 
     return {
-      id: `mdchart-event-${event.id}`,
-      type: this.mapEventType(event.type),
-      severity: this.mapSeverity(event.severity),
+      id: `mdchart-${kind}-${record.id}`,
+      type: kind === 'closure' ? 'traffic' : this.mapEventType(record),
+      severity: kind === 'closure' ? 4 : record.trafficAlert ? 3 : 2,
       location: {
-        lat: event.lat,
-        lng: event.lon,
-        address: this.buildAddress(event.roadway, event.direction),
+        lat: record.lat as number,
+        lng: record.lon as number,
+        address: road || record.county,
       },
-      timestamp: event.startTime || now,
-      updatedAt: event.updateTime || now,
+      timestamp: this.toIso(record.startDateTime) || this.toIso(record.createTime) || now,
+      // Derive from feed fields so unchanged records don't re-broadcast on
+      // every poll (the aggregator diffs on updatedAt).
+      updatedAt:
+        this.toIso(record.lastCachedDataUpdateTime) || this.toIso(record.startDateTime) || now,
       regionId: 'dc',
       source: 'mdchart',
-      title: this.buildTitle(event),
-      description: event.description,
+      title,
+      description: record.description || title,
       status: 'active',
-      category: event.type,
+      category: kind === 'closure' ? 'closure' : record.incidentType || 'incident',
       metadata: {
-        roadway: event.roadway,
-        direction: event.direction,
-        originalType: event.type,
+        county: record.county,
+        direction: record.direction,
+        lanesClosed: record.lanesClosed,
+        originalType: record.incidentType,
       },
     };
   }
 
-  private normalizeClosure(closure: MDChartClosure): Incident {
-    const now = new Date().toISOString();
-
-    return {
-      id: `mdchart-closure-${closure.id}`,
-      type: 'traffic',
-      severity: 4, // Closures are typically high severity
-      location: {
-        lat: closure.lat,
-        lng: closure.lon,
-        address: this.buildAddress(closure.roadway, closure.direction),
-      },
-      timestamp: closure.startTime || now,
-      updatedAt: now,
-      regionId: 'dc',
-      source: 'mdchart',
-      title: `Road Closure: ${closure.roadway || 'Unknown Road'}`,
-      description: closure.description,
-      status: 'active',
-      category: 'closure',
-      metadata: {
-        roadway: closure.roadway,
-        direction: closure.direction,
-        endTime: closure.endTime,
-      },
-    };
+  private toIso(epochMs?: number): string | undefined {
+    if (!epochMs || epochMs <= 0) return undefined;
+    return new Date(epochMs).toISOString();
   }
 
-  private mapEventType(type?: string): 'traffic' | 'hazard' {
-    if (!type) return 'traffic';
-
+  private mapEventType(record: MDChartRecord): 'traffic' | 'hazard' {
+    const text = `${record.incidentType || ''} ${record.description || ''}`.toLowerCase();
     const hazardTypes = ['debris', 'hazard', 'weather', 'flooding'];
-    const lowerType = type.toLowerCase();
-
-    for (const hazard of hazardTypes) {
-      if (lowerType.includes(hazard)) return 'hazard';
-    }
-
-    return 'traffic';
-  }
-
-  private mapSeverity(severity?: string): 1 | 2 | 3 | 4 | 5 {
-    if (!severity) return 2;
-
-    const severityMap: Record<string, 1 | 2 | 3 | 4 | 5> = {
-      minor: 1,
-      moderate: 2,
-      significant: 3,
-      major: 4,
-      severe: 5,
-    };
-
-    return severityMap[severity.toLowerCase()] || 2;
-  }
-
-  private buildTitle(event: MDChartEvent): string {
-    const parts: string[] = [];
-
-    if (event.type) {
-      parts.push(event.type);
-    }
-
-    if (event.roadway) {
-      parts.push(`on ${event.roadway}`);
-    }
-
-    if (event.direction) {
-      parts.push(event.direction);
-    }
-
-    return parts.length > 0 ? parts.join(' ') : 'Traffic Incident';
-  }
-
-  private buildAddress(roadway?: string, direction?: string): string | undefined {
-    if (!roadway) return undefined;
-    return direction ? `${roadway} ${direction}` : roadway;
+    return hazardTypes.some((h) => text.includes(h)) ? 'hazard' : 'traffic';
   }
 
   private haversineDistance(

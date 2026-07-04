@@ -44,11 +44,6 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
     // This endpoint has the full year of crime data
     // API docs: https://opendata.dc.gov/datasets/crime-incidents-in-2024
     
-    // Calculate date 1 year ago
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const dateStr = oneYearAgo.toISOString().split('T')[0];
-    
     // Try the ArcGIS REST API with the current year's crime layer
     // Layer numbers change yearly - try the general query endpoint
     const baseUrl =
@@ -72,8 +67,14 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
         return [];
       }
 
+      // Keep records inside the aggregator's 30-day expiry — the rolling
+      // layer can include slightly older rows, which would clear/re-add
+      // in a loop.
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
       return response.features
         .filter((f) => f.attributes.LATITUDE && f.attributes.LONGITUDE)
+        .filter((f) => new Date(f.attributes.REPORT_DAT || 0).getTime() >= cutoff)
         .map((f) => this.normalizeCrime(f));
     } catch (error) {
       logger.error('Failed to fetch DC Crime data', { error });
@@ -101,7 +102,9 @@ export class DCCrimeFetcher extends BaseFetcher<Incident> {
         neighborhood: attrs.NEIGHBORHOOD_CLUSTER,
       },
       timestamp: reportDate,
-      updatedAt: now,
+      // Stable across polls so the aggregator's updatedAt diff doesn't
+      // re-broadcast ~2000 unchanged records every cycle.
+      updatedAt: reportDate,
       regionId: 'dc',
       source: 'dc-crime',
       title: this.formatOffense(attrs.OFFENSE),

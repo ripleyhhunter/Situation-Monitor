@@ -3,6 +3,7 @@ import type { Incident, IncidentType } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { geocache } from '../services/geocache.js';
+import { wallClockToUtcMs } from '../utils/timezone.js';
 
 interface AlertItem {
   title: string;
@@ -12,6 +13,8 @@ interface AlertItem {
 }
 
 export class AlertDCFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'alertdc' as const;
+
   constructor() {
     super('alertdc', config.cacheTtl.crime);
   }
@@ -21,18 +24,14 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     const url = 'https://trainingtrack.hsema.dc.gov/NRss/RssFeed/AlertDCList';
 
     try {
-      const response = await fetch(url, {
+      // httpGetText gives the shared 30s AbortController timeout + retries —
+      // a raw fetch here could hang on a wedged upstream socket indefinitely.
+      const html = await this.httpGetText(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           Accept: 'text/html,application/xhtml+xml,*/*',
         },
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
 
       // Check if we got RSS or HTML
       if (html.trim().startsWith('<?xml') || html.includes('<rss') || html.includes('<feed')) {
@@ -41,6 +40,14 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
 
       // Parse HTML table format
       const items = this.parseHTML(html);
+
+      // 'alertdc' is a complete-listing source: zero parsed rows from a
+      // substantive page means the markup drifted (the feed has changed
+      // format before), and returning [] would cross-clear every live
+      // alert. A genuinely empty feed is a small stub page.
+      if (items.length === 0 && html.length > 2000) {
+        throw new Error('AlertDC: page returned but no alerts parsed (markup drift?)');
+      }
 
       const incidents: Incident[] = [];
       for (const item of items) {
@@ -184,7 +191,8 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
         address: location.address,
       },
       timestamp,
-      updatedAt: new Date().toISOString(),
+      // Feed-derived so unchanged alerts don't re-broadcast every poll
+      updatedAt: timestamp,
       regionId: 'dc',
       source: 'alertdc',
       title: item.title,
@@ -314,10 +322,15 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
 
   private parseDate(dateStr: string): string {
     try {
-      // Try parsing various date formats
-      // Format: "1/11/2026 6:25:00 AM" or "1/11/2026 6:25 AM"
-      const date = new Date(dateStr);
+      // The feed emits zone-less US/Eastern wall-clock strings like
+      // "1/11/2026 6:25:00 AM". new Date() would interpret them in the
+      // HOST's zone (e.g. 2h skew on a Mountain-time machine), shifting
+      // every alert's displayed time and its 24h-cleanup timing.
+      const eastern = this.parseEasternWallClock(dateStr);
+      if (eastern) return eastern;
 
+      // Strings that carry their own zone (RSS pubDate etc.) parse directly.
+      const date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
         return date.toISOString();
       }
@@ -327,6 +340,20 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     } catch {
       return new Date().toISOString();
     }
+  }
+
+  /** Parse "M/D/YYYY h:mm[:ss] AM/PM" as America/New_York wall-clock time. */
+  private parseEasternWallClock(dateStr: string): string | null {
+    const m = dateStr.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (!m) return null;
+
+    const [, mo, d, y, h, min, sec, ap] = m;
+    let hour = parseInt(h, 10) % 12;
+    if (ap.toUpperCase() === 'PM') hour += 12;
+
+    return new Date(
+      wallClockToUtcMs(+y, +mo, +d, hour, +min, +(sec || 0), 'America/New_York'),
+    ).toISOString();
   }
 
   private generateId(title: string, timestamp: string): string {
@@ -354,8 +381,13 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     const address = this.extractAddress(description);
     
     if (address) {
-      // Use centralized geocache service (persisted to Redis)
-      const result = await geocache.geocode(address);
+      // Use centralized geocache service (persisted to Redis).
+      // AlertDC is inherently a DC feed, so the region context is fixed.
+      const result = await geocache.geocode(address, {
+        city: 'Washington',
+        state: 'DC',
+        center: { lat: 38.9072, lng: -77.0369 },
+      });
       if (result) {
         return {
           lat: result.lat,

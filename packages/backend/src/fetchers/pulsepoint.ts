@@ -14,6 +14,7 @@ import type { Incident, IncidentType, RegionId } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { geocache } from '../services/geocache.js';
+import { todayInZone, wallClockToUtcMs } from '../utils/timezone.js';
 
 interface ParsedIncident {
   type: string;
@@ -43,6 +44,14 @@ export interface PulsePointAgencyConfig {
   cityPattern: RegExp;
   /** Title prefix on each normalized incident, e.g. "DCFD" or "ACCESS". */
   titlePrefix: string;
+  /** IANA timezone of the agency, e.g. "America/New_York". Pinned on the
+   * browser context so scraped times are agency-local, and used to convert
+   * them to UTC. */
+  timezone: string;
+  /** City appended to bare street addresses when geocoding, e.g. "Washington". */
+  geocodeCity: string;
+  /** Two-letter state for geocoding, e.g. "DC". */
+  geocodeState: string;
   /** Center used as a deterministic fallback when geocoding fails. */
   fallbackCenter: { lat: number; lng: number };
   /**
@@ -115,6 +124,15 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
   }
 
   private async getBrowser(): Promise<Browser> {
+    // A crashed/killed Chromium leaves a disconnected handle — relaunch,
+    // otherwise the feed is dead until the backend restarts.
+    if (this.browser && !this.browser.isConnected()) {
+      logger.warn(`PulsePoint (${this.agency.regionId}): Browser disconnected, relaunching`);
+      this.browser = null;
+      this.persistentPage = null;
+      this.isConfigured = false;
+    }
+
     if (!this.browser) {
       logger.debug('PulsePoint: Launching headless browser...');
       this.browser = await chromium.launch({
@@ -130,10 +148,21 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
       return this.persistentPage;
     }
 
+    // A closed page can leave its context alive inside the long-lived
+    // browser process — close it before creating a replacement so contexts
+    // don't accumulate across failures.
+    if (this.persistentPage) {
+      await this.persistentPage.context().close().catch(() => {});
+      this.persistentPage = null;
+    }
+
     const browser = await this.getBrowser();
     const context = await browser.newContext({
       geolocation: { latitude: this.agency.browserLat, longitude: this.agency.browserLng },
       permissions: ['geolocation'],
+      // Pin the agency's zone so scraped wall-clock times are agency-local
+      // regardless of the host machine's timezone.
+      timezoneId: this.agency.timezone,
       storageState: undefined,
     });
 
@@ -184,12 +213,16 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
       logger.warn(`PulsePoint fetch failed: ${msg}`);
 
       if (this.persistentPage) {
-        await this.persistentPage.close().catch(() => {});
+        // Close the whole context (not just the page) — page.close() leaves
+        // the context alive and they accumulate across a failure loop.
+        await this.persistentPage.context().close().catch(() => {});
         this.persistentPage = null;
         this.isConfigured = false;
       }
 
-      return [];
+      // Propagate so BaseFetcher records the failure and serves stale data,
+      // instead of caching an empty "success" that hides the outage.
+      throw error;
     }
   }
 
@@ -297,7 +330,10 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
       structuredIncidents.push({
         type: lines[0]?.trim() || '',
         address: lines.find((l: string) => cityRe.test(l))?.trim() || '',
-        time: lines.find((l: string) => /\d+:\d+\s*(AM|PM)/i.test(l))?.trim() || '',
+        // Extract the bare time token (not the whole line): the id hashes
+        // this value, and surrounding dynamic text would churn identities —
+        // and disagree with the text-parse path's clean token.
+        time: lines.map((l: string) => l.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i)).find(Boolean)?.[1] || '',
         units: lines.filter((l: string) => /^[A-Z]\d+|^AMR\d+|^T\d+|^M\d+/.test(l)).join(' '),
         status: text.toLowerCase().includes('closed') ? 'closed' : 'active',
       });
@@ -306,7 +342,9 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     const allIncidents = [...parsedIncidents];
 
     for (const si of structuredIncidents) {
-      if (si.address && !allIncidents.some(pi => pi.address === si.address)) {
+      // Dedup on address AND type: two simultaneous calls at one address
+      // (e.g. a fire plus a medical) are distinct incidents.
+      if (si.address && !allIncidents.some(pi => pi.address === si.address && pi.type === si.type)) {
         allIncidents.push({
           type: si.type,
           address: si.address,
@@ -399,9 +437,13 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     const now = new Date().toISOString();
     const typeInfo = this.getTypeInfo(raw.type);
 
-    const stableId = this.generateStableId(raw.address, raw.type);
+    const stableId = this.generateStableId(raw.address, raw.type, raw.time);
 
-    const geocoded = await geocache.geocode(raw.address);
+    const geocoded = await geocache.geocode(raw.address, {
+      city: this.agency.geocodeCity,
+      state: this.agency.geocodeState,
+      center: this.agency.fallbackCenter,
+    });
     const coords = geocoded || this.estimateFallback(raw.address);
 
     return {
@@ -430,8 +472,11 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     };
   }
 
-  private generateStableId(address: string, type: string): string {
-    const key = `${address}-${type}`.toLowerCase();
+  // The dispatch time is part of the identity: without it, two simultaneous
+  // same-type calls at one address collapse to one id, and a new call weeks
+  // later at the same address+type resurrects the old cleared incident.
+  private generateStableId(address: string, type: string, time: string): string {
+    const key = `${address}-${type}-${time}`.toLowerCase();
     let hash = 0;
     for (let i = 0; i < key.length; i++) {
       const char = key.charCodeAt(i);
@@ -510,7 +555,6 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     if (!timeStr) return new Date().toISOString();
 
     try {
-      const now = new Date();
       const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
       if (match) {
         let hours = parseInt(match[1], 10);
@@ -520,8 +564,19 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
         if (isPM && hours !== 12) hours += 12;
         if (!isPM && hours === 12) hours = 0;
 
-        now.setHours(hours, minutes, 0, 0);
-        return now.toISOString();
+        // The context is pinned to the agency timezone, so the scraped
+        // wall-clock is agency-local — convert from that zone, not the host's.
+        const today = todayInZone(this.agency.timezone);
+        let ts = wallClockToUtcMs(today.year, today.month, today.day, hours, minutes, 0, this.agency.timezone);
+
+        // Midnight rollover: "11:55 PM" scraped at 12:10 AM belongs to
+        // yesterday — a future timestamp would evade the 24h age sweep for
+        // nearly two days.
+        if (ts > Date.now() + 5 * 60 * 1000) {
+          ts -= 24 * 60 * 60 * 1000;
+        }
+
+        return new Date(ts).toISOString();
       }
     } catch {
       // fall through

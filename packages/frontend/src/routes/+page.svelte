@@ -8,6 +8,7 @@
   import IncidentModal from '$components/modals/IncidentModal.svelte';
   import WeatherBanner from '$components/panels/WeatherBanner.svelte';
   import { sidebarOpen, requestUserLocation, searchLocation } from '$stores/location';
+  import { selectedRegion } from '$stores/region';
   import { selectedCamera } from '$stores/cameras';
   import { selectedIncident } from '$stores/incidents';
   import { activeWeatherAlerts } from '$stores/weather';
@@ -27,7 +28,7 @@
 </script>
 
 <svelte:head>
-  <title>Situation Monitor - DC</title>
+  <title>Situation Monitor - {$selectedRegion.label}</title>
 </svelte:head>
 
 <div class="h-screen flex flex-col overflow-hidden">

@@ -57,6 +57,8 @@ export interface ItdWzdxFetcherOptions {
 }
 
 export class ItdWzdxFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'itd-wzdx' as const;
+
   private static readonly URL = 'https://511.idaho.gov/api/wzdx';
 
   private bounds: ItdWzdxFetcherOptions['bounds'];
@@ -71,8 +73,10 @@ export class ItdWzdxFetcher extends BaseFetcher<Incident> {
       const response = await this.httpGet<WzdxResponse>(ItdWzdxFetcher.URL);
 
       if (!response.features || !Array.isArray(response.features)) {
-        logger.debug('ITD WZDx returned no features');
-        return [];
+        // 'itd-wzdx' is a complete-listing source (and exempt from the age
+        // sweep), so a false-empty "success" would wipe every work zone and
+        // is its only clear path. Treat contract drift as a failure.
+        throw new Error('ITD WZDx: unexpected response shape (no features array)');
       }
 
       const incidents: Incident[] = [];

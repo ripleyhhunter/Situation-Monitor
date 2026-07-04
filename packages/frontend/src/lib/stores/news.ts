@@ -44,8 +44,6 @@ export function getRelatedNews(
   incidentAddress?: string,
   incidentType?: string
 ): NewsItem[] {
-  const searchText = `${incidentTitle} ${incidentAddress || ''}`.toLowerCase();
-  
   const typeKeywords: Record<string, string[]> = {
     crime: ['shooting', 'stabbing', 'robbery', 'assault', 'murder', 'homicide', 'carjacking', 'arrest', 'police'],
     fire: ['fire', 'blaze', 'flames', 'firefighters', 'evacuation', 'smoke'],

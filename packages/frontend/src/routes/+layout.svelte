@@ -1,5 +1,8 @@
 <script lang="ts">
   import '../app.css';
+  import 'leaflet/dist/leaflet.css';
+  import 'leaflet.markercluster/dist/MarkerCluster.css';
+  import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
   import { onMount } from 'svelte';
   import { darkMode } from '$stores/location';
   import { sseService } from '$services/sse';

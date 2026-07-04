@@ -24,6 +24,21 @@ class CacheService {
   private redisDisabled = false;
   private commandTimeout = 5000; // 5 second timeout for Redis commands
 
+  constructor() {
+    // Every set() writes the memory tier (even with Redis connected), and
+    // reads only prune lazily — without a sweep, expired entries accumulate
+    // for the lifetime of the process. unref() so the timer never keeps the
+    // process alive.
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, entry] of this.memoryCache) {
+        if (entry.expiry <= now) {
+          this.memoryCache.delete(key);
+        }
+      }
+    }, 60000).unref();
+  }
+
   async connect(): Promise<void> {
     try {
       // Use 127.0.0.1 instead of localhost for better Windows/Docker compatibility
@@ -109,7 +124,7 @@ class CacheService {
   async get<T>(key: string): Promise<T | null> {
     try {
       if (this.redis && this.connected) {
-        const data = await withTimeout(this.redis.get(key), this.commandTimeout);
+        const data = await withTimeout<string | null>(this.redis.get(key), this.commandTimeout);
         return data ? JSON.parse(data) : null;
       }
 
@@ -159,6 +174,42 @@ class CacheService {
         logger.error('Cache set error:', { key, error });
       }
     }
+  }
+
+  /**
+   * Atomically increment a counter with a fixed expiry window: the TTL is
+   * set when the key is created and NOT refreshed on later increments, so a
+   * steady stream of hits can never keep a window alive forever.
+   * Returns the post-increment count.
+   */
+  async increment(key: string, ttlSeconds: number): Promise<number> {
+    try {
+      if (this.redis && this.connected) {
+        const count = await withTimeout<number>(this.redis.incr(key), this.commandTimeout);
+        // Set the window TTL when missing (ttl === -1: key exists, no
+        // expiry). Self-healing on every hit, and unlike EXPIRE ... NX it
+        // works on Redis < 7 — a swallowed NX error there would leave an
+        // immortal counter that permanently 429s the client.
+        const ttl = await withTimeout<number>(this.redis.ttl(key), this.commandTimeout).catch(() => 0);
+        if (ttl === -1) {
+          await withTimeout(this.redis.expire(key, ttlSeconds), this.commandTimeout).catch(() => {});
+        }
+        return count;
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.debug('Cache increment falling back to memory', { key, error: errorMessage });
+    }
+
+    // Memory fallback: fixed window — keep the original expiry.
+    const cached = this.memoryCache.get(key);
+    if (cached && cached.expiry > Date.now()) {
+      const next = (parseInt(cached.data, 10) || 0) + 1;
+      cached.data = String(next);
+      return next;
+    }
+    this.memoryCache.set(key, { data: '1', expiry: Date.now() + ttlSeconds * 1000 });
+    return 1;
   }
 
   async del(key: string): Promise<void> {

@@ -19,10 +19,6 @@ interface OpenMHzCall {
   star?: boolean;
 }
 
-interface OpenMHzResponse {
-  calls?: OpenMHzCall[];
-}
-
 const DCFD_TALKGROUP_MAP: Record<string, { type: IncidentType; severity: 1 | 2 | 3 | 4 | 5; name: string }> = {
   dispatch: { type: 'fire', severity: 3, name: 'Dispatch' },
   ems: { type: 'fire', severity: 3, name: 'EMS' },

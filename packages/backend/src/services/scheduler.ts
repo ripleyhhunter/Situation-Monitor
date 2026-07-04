@@ -5,7 +5,7 @@ interface ScheduledTask {
   name: string;
   task: cron.ScheduledTask;
   lastRun?: Date;
-  nextRun?: Date;
+  running?: boolean;
 }
 
 class SchedulerService {
@@ -29,7 +29,18 @@ class SchedulerService {
 
     const wrappedHandler = async () => {
       const taskInfo = this.tasks.get(name);
+
+      // Overlap guard: node-cron fires on every tick regardless of whether
+      // the previous run finished. Without this, a slow upstream (OpenSky,
+      // PulsePoint) stacks concurrent runs — up to ~19 at the 5s aircraft
+      // cadence — burning quota and resources.
+      if (taskInfo?.running) {
+        logger.debug(`Skipping scheduled task ${name} - previous run still in progress`);
+        return;
+      }
+
       if (taskInfo) {
+        taskInfo.running = true;
         taskInfo.lastRun = new Date();
       }
 
@@ -38,6 +49,11 @@ class SchedulerService {
         await handler();
       } catch (error) {
         logger.error(`Scheduled task failed: ${name}`, { error });
+      } finally {
+        const info = this.tasks.get(name);
+        if (info) {
+          info.running = false;
+        }
       }
     };
 
@@ -58,34 +74,6 @@ class SchedulerService {
     if (runImmediately) {
       wrappedHandler();
     }
-  }
-
-  /**
-   * Schedule a task to run at fixed intervals (in milliseconds)
-   */
-  scheduleInterval(
-    name: string,
-    intervalMs: number,
-    handler: () => Promise<void>,
-    runImmediately = true
-  ): void {
-    // Convert milliseconds to cron expression approximation
-    const seconds = Math.floor(intervalMs / 1000);
-
-    let cronExpression: string;
-
-    if (seconds < 60) {
-      // Run every N seconds (cron doesn't support sub-minute, so use 1 minute minimum)
-      cronExpression = '* * * * *'; // Every minute
-    } else if (seconds < 3600) {
-      const minutes = Math.floor(seconds / 60);
-      cronExpression = `*/${minutes} * * * *`; // Every N minutes
-    } else {
-      const hours = Math.floor(seconds / 3600);
-      cronExpression = `0 */${hours} * * *`; // Every N hours
-    }
-
-    this.schedule(name, cronExpression, handler, runImmediately);
   }
 
   /**

@@ -1,270 +1,120 @@
 # Situation Monitor
 
-Real-time situation monitoring dashboard for Washington D.C. and the surrounding DMV area. Aggregates traffic cameras, Fire/EMS incidents, crime data, emergency scanner feeds, weather alerts, and air quality data into a unified map-based interface.
+Real-time situation monitoring dashboard. Aggregates Fire/EMS incidents, traffic, crime, weather alerts, air quality, aircraft, news, and live cameras onto a unified map-based interface — for multiple regions, switchable at runtime:
 
-![Dashboard Screenshot](docs/screenshot.png)
+- **Washington, DC + DMV** — PulsePoint Fire/EMS, MD CHART traffic, DC Open Data crime & ShotSpotter, Montgomery/Prince George's County crime, WMATA Metro alerts, AlertDC emergencies
+- **Boise / Treasure Valley** — PulsePoint (Ada County ACCESS) Fire/EMS, Boise PD crime, ITD work zones, regional webcams
+
+The backend fetches **all** regions concurrently; the header switcher picks which one you see (persisted in localStorage).
 
 ## Features
 
-### Core Functionality
-- **Real-time Map** - Interactive Leaflet map with OpenStreetMap tiles and dark mode support
-- **Live Updates** - Server-Sent Events (SSE) for instant data streaming
-- **Address Search** - Geocoding-powered location search (OpenStreetMap Nominatim)
-- **Filtering** - Filter by incident type, severity, and time range (1h/6h/24h/all)
-- **Dark Mode** - Full dark theme with persistent preference
+### Core
+- **Real-time map** — Leaflet + OpenStreetMap with dark mode, marker clustering, crime heatmap toggle
+- **Live updates** — Server-Sent Events: full snapshot on connect, deltas afterward, automatic reconnect with a heartbeat watchdog
+- **Region switcher** — DC ⇄ Boise without a rebuild
+- **Address search** — Nominatim geocoding scoped to the active region
+- **Filtering** — incident type, severity, time range (1h/6h/24h/all), DC jurisdictions
 
-### Data Sources
+### Data sources (DC)
+| Type | Source | Interval | Notes |
+|------|--------|----------|-------|
+| 🔥 Fire/EMS | PulsePoint (DC FEMS) | 2 min | Headless-browser scrape; runs only while clients are connected |
+| 🚗 Traffic | MD CHART + DC HSEMA | 1 min | Crashes, closures, construction |
+| 🔫 Crime | DC + MoCo + PG Open Data | 15 min | Last 30 days |
+| 💥 ShotSpotter | DC Open Data | 5 min | Last 30 days (upstream feed currently stale) |
+| 🚨 Major alerts | AlertDC | 2 min | Fires, hazmat, emergencies |
+| 🚇 Metro | WMATA API | 30 sec | Requires free API key |
 
-#### Incidents
-| Type | Source | Update Interval | Notes |
-|------|--------|-----------------|-------|
-| 🔥 **Fire/EMS** | PulsePoint (DC FEMS) | 2 min | Live incidents via headless browser |
-| 🚗 **Traffic** | MD CHART + DC HSEMA | 1 min | Crashes, road closures, construction |
-| 🔫 **Crime** | DC Open Data | 15 min | Last 30 days of crime reports |
-| 💥 **ShotSpotter** | DC Open Data | 5 min | Gunshot detection alerts |
-| 🚨 **Major Alerts** | AlertDC | 2 min | Major emergencies (fires, hazmat) |
-| 🚇 **Metro** | WMATA API | 30 sec | Service alerts & delays (API key) |
+### Data sources (Boise)
+| Type | Source | Interval | Notes |
+|------|--------|----------|-------|
+| 🔥 Fire/EMS | PulsePoint (Ada County ACCESS) | 2 min | Boise Fire, ACCESS paramedics, Meridian, Eagle |
+| 🚧 Work zones | ITD WZDx | 1 min | Statewide feed, bbox-filtered to Treasure Valley |
+| 🔫 Crime | Boise PD ArcGIS | 15 min | Feed lags ~1 month; 60-day window shown |
 
-#### Environment
-| Type | Source | Update Interval | Notes |
-|------|--------|-----------------|-------|
-| 🌤️ **Current Weather** | Open-Meteo | 5 min | Temperature, conditions, wind |
-| ⚠️ **Weather Alerts** | NWS | 2 min | Severe weather warnings w/ polygons |
-| 🌬️ **Air Quality** | AirNow | 30 min | AQI readings (API key) |
+### Shared (every region)
+| Type | Source | Interval | Notes |
+|------|--------|----------|-------|
+| ⚠️ Weather alerts | NWS | 2 min | With polygons on the map |
+| 🌤️ Current weather | Open-Meteo | 5 min | No API key needed |
+| 🌬️ Air quality | AirNow | 30 min | Requires free API key |
+| ✈️ Aircraft | OpenSky Network | 5 sec | Opt-in per client & per region (quota-aware) |
+| 📰 Local news | RSS feeds | 5 min | Region-filtered, related-news matching per incident |
+| 📷 Cameras | MD CHART, DC DOT, curated webcams | 5 min | 100+ feeds in DC, curated list in Boise |
 
-#### Cameras (100+ feeds)
-| Source | Count | Notes |
-|--------|-------|-------|
-| MD CHART | 50+ | Highway traffic cameras |
-| DC DOT | 30+ | Street-level cameras |
-| Landmark Webcams | 23 | Curated list including official Senate, NPS, FOX 5 DC, EarthCam, WeatherBug, YouTube streams |
+## Quick start
 
-### Map Features
-- **Incident Markers** - Color-coded by type with severity indicators
-- **Camera Markers** - Click to view live feeds (video/images)
-- **Weather Polygons** - NWS alert zones displayed on map
-- **Crime Heatmap** - Toggle heatmap visualization for crime/gunshot data
-- **Marker Clustering** - Auto-clusters dense areas for performance
-- **User Location** - Center on your location with one click
-
-### Header Dashboard
-- **Current Weather** - Live temperature and conditions with emoji icons
-- **Metro Delays** - Color-coded badges showing affected lines (RD/BL/OR/SV/GR/YL)
-- **AQI Indicator** - Color-coded air quality badge
-- **Active Incidents** - Real-time count of all active incidents
-- **Connection Status** - SSE connection health indicator
-
-### Scanner Panel
-Access to DC area emergency scanner feeds:
-- DC Fire/EMS Audio (Broadcastify Calls)
-- OpenMHz DCFD Archives
-- DC Airports Public Safety
-- MD-DC Mutual Aid
-- WMATA MetroRail
-- Prince George's & Montgomery County Fire
-
-## Quick Start
-
-### Prerequisites
-- Node.js 20+
-- Docker (for Redis)
-
-### Installation
+Prerequisites: Node.js 20+. Docker is optional (Redis persistence — the app falls back to an in-memory cache without it).
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/situation-monitor.git
-cd situation-monitor
+git clone https://github.com/ripleyhhunter/Situation-Monitor.git
+cd Situation-Monitor
 
-# Install dependencies
 npm install
+npx playwright install chromium   # one-time: browser for PulsePoint scraping
 
-# Copy environment file
-cp .env.example .env
+cp .env.example .env              # optional API keys documented inside
 
-# Start Redis
-npm run docker:up
-
-# Start development servers
+npm run docker:up                 # optional: Redis (incidents survive restarts)
 npm run dev
 ```
 
-The dashboard will be available at http://localhost:5173
-
-### Environment Variables
-
-Create a `.env` file in the repo root:
-
-```env
-# Backend
-NODE_ENV=development
-PORT=3000
-REDIS_URL=redis://localhost:6379
-
-# API Keys (optional - features work without them)
-WMATA_API_KEY=your_wmata_key          # Metro alerts (developer.wmata.com)
-AIRNOW_API_KEY=your_airnow_key        # Air quality (airnowapi.org)
-TWITTER_BEARER_TOKEN=your_token       # @dcfireems tweets ($100/mo X API)
-
-# Map defaults
-PUBLIC_DEFAULT_LAT=38.9072
-PUBLIC_DEFAULT_LNG=-77.0369
-
-# Frontend API base (leave empty for same-origin dev)
-PUBLIC_API_URL=
-```
-
-**API Key Registration:**
-- **WMATA** (Metro data): https://developer.wmata.com/ (free)
-- **AirNow** (Air quality): https://docs.airnowapi.org/ (free)
-- **Twitter/X** (Fire/EMS tweets): https://developer.twitter.com/ ($100/month Basic tier)
+Dashboard: http://localhost:5173 (Vite proxies `/api` to the backend on :3000).
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     SvelteKit Frontend                              │
-│  ┌──────────────┐ ┌─────────────┐ ┌──────────────┐ ┌─────────────┐  │
-│  │ Leaflet Map  │ │   Sidebar   │ │ Scanner Panel│ │   Header    │  │
-│  │ + Heatmap    │ │ + Filters   │ │              │ │ + Weather   │  │
-│  │ + Clustering │ │ + Incidents │ │              │ │ + Metro     │  │
-│  └──────────────┘ └─────────────┘ └──────────────┘ └─────────────┘  │
+│                     SvelteKit Frontend (SPA)                        │
+│   Leaflet map · sidebar/filters · region switcher · scanner panel   │
 └───────────────────────────┬─────────────────────────────────────────┘
-                            │ SSE (Server-Sent Events)
+                            │ SSE (snapshot on connect + deltas)
 ┌───────────────────────────┴─────────────────────────────────────────┐
 │                     Node.js Backend                                 │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                    Aggregator Service                          │ │
-│  │  ┌────────────────────────────────────────────────────────┐    │ │
-│  │  │ Fetchers (16 data sources):                            │    │ │
-│  │  │ PulsePoint | MD CHART | DC Traffic | DC Crime | NWS    │    │ │
-│  │  │ AlertDC | WMATA | AirNow | OpenMHz | Open-Meteo | ...  │    │ │
-│  │  └────────────────────────────────────────────────────────┘    │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-│                               │                                     │
-│          ┌────────────────────┼────────────────────┐                │
-│          ▼                    ▼                    ▼                │
-│     Redis Cache          SQLite DB           SSE Broadcast          │
+│  Region packs (dc, boise) wire 22 fetchers → node-cron schedules    │
+│  → normalizers → per-region in-memory state → SSE broadcast         │
+│                    │                                                │
+│              Redis snapshot (active incidents, optional)            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Monorepo Structure
+Monorepo (Turborepo + npm workspaces): `packages/frontend` (SvelteKit 2 / Svelte 5, Leaflet, TailwindCSS) and `packages/backend` (Express, TypeScript, Playwright, ioredis). See [CLAUDE.md](CLAUDE.md) for the full architecture reference, including the region-pack contract and how to add a data source or region.
 
-```
-situation-monitor/
-├── packages/
-│   ├── frontend/              # SvelteKit 2.x + Svelte 5
-│   │   ├── src/
-│   │   │   ├── lib/
-│   │   │   │   ├── components/
-│   │   │   │   │   ├── map/       # MapContainer, markers, layers
-│   │   │   │   │   ├── modals/    # Incident, Camera modals
-│   │   │   │   │   ├── panels/    # Scanner, Weather banner
-│   │   │   │   │   ├── sidebar/   # Filters, incident list
-│   │   │   │   │   └── ui/        # Header, SearchBar
-│   │   │   │   ├── stores/        # Svelte stores (state management)
-│   │   │   │   ├── services/      # SSE client, geolocation
-│   │   │   │   └── utils/         # Formatting, geo utilities
-│   │   │   └── routes/            # SvelteKit pages
-│   │   └── static/                # Static assets
-│   │
-│   └── backend/               # Node.js + Express
-│       └── src/
-│           ├── fetchers/          # 16 data source integrations
-│           ├── services/          # Aggregator, SSE, DB, Scheduler
-│           ├── routes/            # API endpoints
-│           ├── middleware/        # CORS, rate limiting, errors
-│           └── types/             # TypeScript definitions
-│
-├── docker-compose.yml         # Redis container
-└── turbo.json                # Turborepo config
-```
-
-## Data Source Details
-
-### Fire/EMS (PulsePoint)
-DC Fire & EMS participates in PulsePoint. The app scrapes the PulsePoint web interface using Playwright to extract real-time incidents. This runs only when frontend clients are connected (saves resources).
-
-**Limitations:**
-- DC Metro Police radios have been fully encrypted since 2011
-- DC does NOT publish real-time Fire/EMS CAD data publicly
-- AlertDC only provides major emergency alerts
-
-**Alternatives for users:**
-- **[PulsePoint App](https://www.pulsepoint.org/)** - Free mobile app, select "Washington DC FEMS"
-- **[Broadcastify Calls](https://www.broadcastify.com/calls/)** - Archived radio calls (free account)
-
-### Landmark Webcams
-Curated collection of 23 webcams covering DC and the DMV area:
-
-| Category | Cameras | Examples |
-|----------|---------|----------|
-| **Official** | 2 | US Capitol (Senate), Washington Monument (NPS) |
-| **YouTube** | 2 | White House 24/7, FOX 5 DC Skyline |
-| **FOX 5 DC** | 8 | The Wharf, The Stacks, Rockville, National Harbor, Fairfax, Reston, Loudoun |
-| **EarthCam** | 4 | Monument, Cherry Blossoms, Kennedy Center, MLK |
-| **WeatherBug** | 6 | Lincoln Memorial, Pentagon, Nationals Park, Cathedral |
-| **Seasonal** | 1 | BloomCam (Cherry Blossoms) |
-
-## API Endpoints
+## API
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/health` | Health check with service status |
-| `GET /api/events` | SSE stream for real-time updates |
-| `GET /api/incidents` | Active incidents (supports ?type, ?severity filters) |
-| `GET /api/cameras` | All traffic cameras |
+| `GET /api/events` | SSE stream (snapshot + live updates) |
+| `POST /api/events/preferences` | Per-client aircraft preference |
+| `GET /api/incidents` | Active incidents (`?type`, `?minSeverity`, `?limit` filters) |
+| `GET /api/cameras` | All cameras |
 | `GET /api/weather` | Active weather alerts |
-| `GET /api/aqi` | Current air quality data |
+| `GET /api/aqi` | Air quality readings |
+| `GET /api/news` | News items |
+| `GET /api/news/related/:incidentId` | News related to an incident |
 
 ## Development
 
 ```bash
-# Run with hot-reload (both frontend and backend)
-npm run dev
-
-# Run tests
-npm run test
-
-# Type check
-npm run lint
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run start
-
-# Stop Redis
-npm run docker:down
+npm run dev        # frontend + backend with hot-reload
+npm run test       # run tests once (both workspaces)
+npm run lint       # eslint (both workspaces)
+npm run build      # production build (both workspaces)
+npm run check --workspace=@situation-monitor/frontend   # svelte-check
 ```
 
-### Backend-only (from packages/backend)
-```bash
-npm run dev      # Start with hot-reload
-npm run build    # Compile TypeScript
-npm run start    # Run production build
-```
+CI (`.github/workflows/ci.yml`) gates every push on: backend build + tests, lint, svelte-check, frontend build. The Pages deploy (`deploy.yml`) publishes the frontend on pushes to `master`.
 
-### Frontend-only (from packages/frontend)
-```bash
-npm run dev      # Start Vite dev server
-npm run build    # Build for production
-npm run preview  # Preview production build
-npm run check    # TypeScript check
-```
+The PulsePoint end-to-end test drives a real browser against the live site and is skipped by default; run it with `RUN_E2E=1 npx vitest run src/fetchers/pulsepoint.test.ts` from `packages/backend`.
 
-## Tech Stack
+## Notes & limitations
 
-| Layer | Technologies |
-|-------|-------------|
-| **Frontend** | SvelteKit 2.x, Svelte 5, TailwindCSS, Leaflet.js |
-| **Backend** | Node.js 20, Express, TypeScript |
-| **Scraping** | Playwright (headless Chromium for PulsePoint) |
-| **Caching** | Redis |
-| **Database** | SQLite |
-| **Maps** | Leaflet + OpenStreetMap + Leaflet.markercluster + Leaflet.heat |
+- **Fire/EMS**: neither DC nor Boise publishes raw CAD data; PulsePoint is scraped with a headless browser, and only while clients are connected. DC police radio has been encrypted since 2011 — the scanner panel links out to Broadcastify/OpenMHz instead.
+- **Persistence**: there is no database; state is in-memory with an optional Redis snapshot of active incidents for restarts.
+- **Twitter/X**: the `@dcfireems` fetcher works but requires the $100/mo API tier (`TWITTER_BEARER_TOKEN`).
 
 ## License
 
-MIT
+[MIT](LICENSE)

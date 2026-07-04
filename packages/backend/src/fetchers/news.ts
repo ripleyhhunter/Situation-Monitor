@@ -164,22 +164,26 @@ export class NewsFetcher {
     newsItems: NewsItem[],
     incidentTitle: string,
     incidentAddress?: string,
-    incidentType?: string,
+    _incidentType?: string,
   ): NewsItem[] {
-    const typeKeywords = incidentType
-      ? INCIDENT_KEYWORDS[incidentType as keyof typeof INCIDENT_KEYWORDS] || []
-      : [];
+    // Street-type and direction words appear in nearly every address and
+    // article — matching on them relates everything to everything. Category
+    // keywords alone (e.g. 'police' on every crime article) are likewise not
+    // a specific link, so an address or title hook is required.
+    const GENERIC_ADDRESS_TOKENS = new Set([
+      'block', 'street', 'avenue', 'road', 'drive', 'lane', 'court', 'place',
+      'boulevard', 'highway', 'parkway', 'north', 'south', 'east', 'west',
+      'northwest', 'northeast', 'southwest', 'southeast', 'washington', 'boise',
+    ]);
 
     return newsItems.filter(item => {
       const itemText = `${item.title} ${item.description}`.toLowerCase();
 
-      if (item.keywords?.some(kw => typeKeywords.includes(kw))) {
-        return true;
-      }
-
       if (incidentAddress) {
         const addressParts = incidentAddress.toLowerCase().split(/[\s,]+/);
-        const significantParts = addressParts.filter(part => part.length > 3);
+        const significantParts = addressParts.filter(
+          part => part.length > 3 && !GENERIC_ADDRESS_TOKENS.has(part),
+        );
         if (significantParts.some(part => itemText.includes(part))) {
           return true;
         }

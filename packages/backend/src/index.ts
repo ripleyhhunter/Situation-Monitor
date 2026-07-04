@@ -51,13 +51,17 @@ app.use(errorHandler);
 async function shutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}, shutting down gracefully`);
 
-  // Stop accepting new connections
-  server.close(() => {
-    logger.info('HTTP server closed');
-  });
+  // Stop accepting new connections (server may not be assigned yet if the
+  // signal arrives during startup)
+  if (server) {
+    server.close(() => {
+      logger.info('HTTP server closed');
+    });
+  }
 
-  // Cleanup services
-  aggregator.shutdown();
+  // Cleanup services — await the aggregator so Playwright browsers actually
+  // close before process.exit
+  await aggregator.shutdown();
   sse.shutdown();
   database.close();
   await cache.disconnect();

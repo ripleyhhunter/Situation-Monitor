@@ -121,6 +121,7 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
           'Authorization': `Bearer ${this.bearerToken}`,
           'User-Agent': 'SituationMonitor/1.0',
         },
+        signal: AbortSignal.timeout(30000),
       });
 
       if (!response.ok) {
@@ -212,9 +213,13 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
       severity,
       location,
       timestamp,
-      updatedAt: new Date().toISOString(),
+      // Tweets are immutable — a stable updatedAt avoids re-broadcasts.
+      updatedAt: timestamp,
       regionId: 'dc',
-      source: 'alertdc', // Group with emergency alerts
+      // Must NOT be 'alertdc': that source is in sourcesWithCompleteListing,
+      // so sharing it made the AlertDC and Twitter fetchers cross-clear each
+      // other's incidents on every alternating poll.
+      source: 'dcfireems-twitter',
       title: this.buildTitle(tweet.text, category),
       description: tweet.text,
       status: 'active',
@@ -273,7 +278,7 @@ export class DCFireEMSTwitterFetcher extends BaseFetcher<Incident> {
       title = title.substring(0, maxLength) + '...';
     }
     
-    return `DCFD: ${title}` || `DCFD: ${category}`;
+    return title ? `DCFD: ${title}` : `DCFD: ${category}`;
   }
 
   /**

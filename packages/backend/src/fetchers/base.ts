@@ -1,10 +1,18 @@
-import type { FetcherResult } from '../types/index.js';
+import type { FetcherResult, DataSource } from '../types/index.js';
 import cache from '../services/cache.js';
 import logger from '../logger.js';
 
 export abstract class BaseFetcher<T> {
   protected name: string;
   protected cacheTtl: number;
+
+  /**
+   * The DataSource this fetcher's incidents are stamped with, declared by
+   * fetchers whose feed is a complete snapshot (region packs list these in
+   * sourcesWithCompleteListing). Lets the aggregator cross-clear that
+   * source's incidents even when a successful poll returns zero items.
+   */
+  readonly incidentSource?: DataSource;
 
   constructor(name: string, cacheTtl: number) {
     this.name = name;
@@ -83,7 +91,7 @@ export abstract class BaseFetcher<T> {
   }
 
   /**
-   * Helper method for making HTTP requests with timeout and retry
+   * Helper method for making JSON HTTP requests with timeout and retry
    */
   protected async httpGet<R>(
     url: string,
@@ -92,6 +100,32 @@ export abstract class BaseFetcher<T> {
       timeout?: number;
       retries?: number;
     } = {}
+  ): Promise<R> {
+    return this.httpRequest(url, options, (response) => response.json() as Promise<R>);
+  }
+
+  /**
+   * Same as httpGet, but for endpoints that return text/HTML/XML
+   */
+  protected async httpGetText(
+    url: string,
+    options: {
+      headers?: Record<string, string>;
+      timeout?: number;
+      retries?: number;
+    } = {}
+  ): Promise<string> {
+    return this.httpRequest(url, options, (response) => response.text());
+  }
+
+  private async httpRequest<R>(
+    url: string,
+    options: {
+      headers?: Record<string, string>;
+      timeout?: number;
+      retries?: number;
+    },
+    parse: (response: Response) => Promise<R>
   ): Promise<R> {
     const { headers = {}, timeout = 30000, retries = 2 } = options;
 
@@ -117,7 +151,7 @@ export abstract class BaseFetcher<T> {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        return (await response.json()) as R;
+        return await parse(response);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 

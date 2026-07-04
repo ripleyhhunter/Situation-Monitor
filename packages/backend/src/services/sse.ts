@@ -1,10 +1,11 @@
 import type { Response } from 'express';
-import type { SSEEvent, SSEEventType } from '../types/index.js';
+import type { SSEEvent, SSEEventType, RegionId } from '../types/index.js';
 import logger from '../logger.js';
 
 // Client preferences for conditional fetching
 interface ClientPreferences {
-  wantsAircraft: boolean;
+  /** Region the client wants aircraft data for; null = no aircraft (saves OpenSky quota). */
+  aircraftRegion: RegionId | null;
 }
 
 interface SSEClient {
@@ -52,7 +53,7 @@ class SSEService {
       res,
       connectedAt: new Date(),
       preferences: {
-        wantsAircraft: false, // Default to false to save API quota
+        aircraftRegion: null, // Default to none to save API quota
       },
     });
 
@@ -128,11 +129,11 @@ class SSEService {
   }
 
   /**
-   * Check if any connected client wants aircraft data
+   * Check if any connected client wants aircraft data for a specific region
    */
-  anyClientWantsAircraft(): boolean {
+  anyClientWantsAircraftFor(regionId: RegionId): boolean {
     for (const client of this.clients.values()) {
-      if (client.preferences.wantsAircraft) {
+      if (client.preferences.aircraftRegion === regionId) {
         return true;
       }
     }
@@ -140,12 +141,12 @@ class SSEService {
   }
 
   /**
-   * Get count of clients wanting aircraft data
+   * Get count of clients wanting aircraft data (any region)
    */
   getAircraftClientCount(): number {
     let count = 0;
     for (const client of this.clients.values()) {
-      if (client.preferences.wantsAircraft) {
+      if (client.preferences.aircraftRegion !== null) {
         count++;
       }
     }

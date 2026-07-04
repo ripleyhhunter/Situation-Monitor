@@ -1,8 +1,16 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId } from '$types';
-import { upsertIncident, clearIncident } from '$stores/incidents';
+import { filters } from '$stores/filters';
+import { selectedRegionId } from '$stores/region';
+import { upsertIncident, clearIncident, pruneIncidentsExcept } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
-import { upsertWeatherAlert, removeWeatherAlert, setAirQuality, setCurrentWeather } from '$stores/weather';
+import {
+  upsertWeatherAlert,
+  removeWeatherAlert,
+  pruneWeatherAlertsExcept,
+  setAirQuality,
+  setCurrentWeather,
+} from '$stores/weather';
 import { updateAircraft } from '$stores/aircraft';
 import { updateNews } from '$stores/news';
 
@@ -20,16 +28,33 @@ export const clientId = writable<string | null>(null);
 class SSEService {
   private eventSource: EventSource | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionallyClosed = false;
   private currentClientId: string | null = null;
+
+  // A dead stream doesn't always fire onerror (observed behind proxies: the
+  // upstream dies but the client socket stays open, silently). The server
+  // heartbeats every 30s, so >90s without one means the stream is dead.
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private lastEventAt = 0;
+  private static readonly STALE_STREAM_MS = 90000;
+
+  // Reconnect reconciliation: the server replays its full active snapshot
+  // after 'connected'. Rather than clearing stores up-front (blank map that
+  // refills, and an empty dashboard if the connection dies mid-snapshot),
+  // we track the ids seen during the burst and prune everything else at the
+  // first heartbeat — ghosts still purge, with no intermediate empty state.
+  private reconcilePending = false;
+  private snapshotIncidentIds = new Set<string>();
+  private snapshotAlertIds = new Set<string>();
 
   constructor() {
     // Auto-reconnect on page visibility change
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && !this.eventSource) {
+        if (document.visibilityState === 'visible' && !this.eventSource && !this.intentionallyClosed) {
           this.connect();
         }
       });
@@ -41,6 +66,9 @@ class SSEService {
       return; // Already connected
     }
 
+    this.intentionallyClosed = false;
+    this.lastEventAt = Date.now();
+    this.startWatchdog();
     connectionStatus.set('connecting');
 
     // Default to wanting aircraft - filter store will update preference after connection
@@ -64,24 +92,43 @@ class SSEService {
     this.eventSource.addEventListener('connected', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<{ clientId: string }>;
       console.log('SSE connected:', data);
+      // Snapshot reconciliation starts here (see field docs above).
+      this.reconcilePending = true;
+      this.snapshotIncidentIds.clear();
+      this.snapshotAlertIds.clear();
+      this.lastEventAt = Date.now();
       this.currentClientId = data.data.clientId;
       clientId.set(data.data.clientId);
       lastEventTime.set(data.timestamp);
+      // The server defaults new connections to no-aircraft; push the actual
+      // preference so it survives reconnects (a new clientId each time).
+      this.syncAircraftPreference();
     });
 
     this.eventSource.addEventListener('heartbeat', (event) => {
       const data = JSON.parse(event.data) as SSEEvent;
+      this.lastEventAt = Date.now();
       lastEventTime.set(data.timestamp);
+      // The snapshot burst is written synchronously before any broadcast,
+      // so by the first heartbeat everything current has been re-sent —
+      // whatever wasn't is a ghost from before the disconnect.
+      if (this.reconcilePending) {
+        this.reconcilePending = false;
+        pruneIncidentsExcept(this.snapshotIncidentIds);
+        pruneWeatherAlertsExcept(this.snapshotAlertIds);
+      }
     });
 
     this.eventSource.addEventListener('incident:new', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
+      if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
 
     this.eventSource.addEventListener('incident:update', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
+      if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
@@ -100,6 +147,7 @@ class SSEService {
 
     this.eventSource.addEventListener('weather:alert', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<WeatherAlert>;
+      if (this.reconcilePending) this.snapshotAlertIds.add(data.data.id);
       upsertWeatherAlert(data.data);
       lastEventTime.set(data.timestamp);
     });
@@ -135,6 +183,16 @@ class SSEService {
     });
   }
 
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return;
+    this.watchdogTimer = setInterval(() => {
+      if (this.eventSource && Date.now() - this.lastEventAt > SSEService.STALE_STREAM_MS) {
+        console.warn('SSE stream stale (no heartbeat for 90s), forcing reconnect');
+        this.handleDisconnect();
+      }
+    }, 30000);
+  }
+
   private handleDisconnect(): void {
     if (this.eventSource) {
       this.eventSource.close();
@@ -143,28 +201,43 @@ class SSEService {
 
     connectionStatus.set('disconnected');
 
-    // Attempt reconnection with exponential backoff
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = Math.min(
-        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-        this.maxReconnectDelay
-      );
+    if (this.intentionallyClosed) return;
 
-      console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    // A failing EventSource can emit multiple error events; without this
+    // guard each one would schedule its own retry timer and the timers
+    // stack geometrically.
+    if (this.reconnectTimer) return;
 
-      setTimeout(() => {
-        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-          this.connect();
-        }
-      }, delay);
-    } else {
-      console.error('Max reconnection attempts reached');
-      connectionStatus.set('error');
-    }
+    // Retry forever with capped exponential backoff — the backend (owner's
+    // machine) can be down for hours, and a permanently dead dashboard that
+    // needs a manual reload is worse than a 30s retry loop.
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, Math.min(this.reconnectAttempts - 1, 10)),
+      this.maxReconnectDelay
+    );
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        this.connect();
+      }
+      // If the tab is hidden, the visibilitychange handler reconnects on return.
+    }, delay);
   }
 
   disconnect(): void {
+    this.intentionallyClosed = true;
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -172,11 +245,19 @@ class SSEService {
     this.currentClientId = null;
     clientId.set(null);
     connectionStatus.set('disconnected');
-    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent auto-reconnect
   }
 
   isConnected(): boolean {
     return this.eventSource?.readyState === EventSource.OPEN;
+  }
+
+  /**
+   * Push the current aircraft preference (from the filters store) and the
+   * selected region to the server. Called after every connect and whenever
+   * the selected region changes.
+   */
+  syncAircraftPreference(): void {
+    this.updateAircraftPreference(get(filters).showAircraft).catch(() => {});
   }
 
   /**
@@ -197,6 +278,7 @@ class SSEService {
         body: JSON.stringify({
           clientId: this.currentClientId,
           wantsAircraft,
+          regionId: get(selectedRegionId),
         }),
       });
 
@@ -216,4 +298,11 @@ class SSEService {
 }
 
 export const sseService = new SSEService();
+
+// Re-sync the aircraft preference when the user switches regions so the
+// backend polls OpenSky for the region actually being viewed.
+selectedRegionId.subscribe(() => {
+  sseService.syncAircraftPreference();
+});
+
 export default sseService;

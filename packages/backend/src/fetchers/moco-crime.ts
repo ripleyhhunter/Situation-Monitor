@@ -88,11 +88,16 @@ export class MoCoCrimeFetcher extends BaseFetcher<Incident> {
 
       // Filter out records without valid coordinates
       // Many MoCo records have lat/lng of "0.0" which is invalid
+      // Day-granularity $where can return records slightly older than the
+      // aggregator's 30-day expiry, which would clear/re-add them in a loop.
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
       const validRecords = response.filter((record) => {
         const lat = parseFloat(record.latitude || '0');
         const lng = parseFloat(record.longitude || '0');
+        const ts = new Date(record.date || record.start_date || 0).getTime();
         // Valid DC-area coordinates: lat ~38-40, lng ~-76 to -78
-        return lat > 38 && lat < 40 && lng < -76 && lng > -78;
+        return lat > 38 && lat < 40 && lng < -76 && lng > -78 && ts >= cutoff;
       });
 
       logger.info(`MoCo Crime: ${validRecords.length} of ${response.length} records have valid coordinates`);
@@ -131,7 +136,9 @@ export class MoCoCrimeFetcher extends BaseFetcher<Incident> {
         neighborhood: record.city || record.district,
       },
       timestamp: incidentDate,
-      updatedAt: now,
+      // Stable across polls so the aggregator's updatedAt diff doesn't
+      // re-broadcast ~2000 unchanged records every cycle.
+      updatedAt: incidentDate,
       regionId: 'dc',
       source: 'moco-crime',
       title: this.formatOffense(crimeName),

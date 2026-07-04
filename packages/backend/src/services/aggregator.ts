@@ -7,6 +7,7 @@ import type {
   Aircraft,
   NewsItem,
   RegionId,
+  DataSource,
 } from '../types/index.js';
 import type { RegionPack } from '../regions/types.js';
 import { allRegions } from '../regions/index.js';
@@ -146,7 +147,10 @@ class AggregatorService {
 
   private async persistIncidents(regionId: RegionId): Promise<void> {
     try {
-      const incidents = Array.from(this.getState(regionId).incidents.values());
+      // Only actives are ever restored on startup, so persisting cleared
+      // incidents would just grow the payload re-serialized on every change.
+      const incidents = Array.from(this.getState(regionId).incidents.values())
+        .filter(i => i.status === 'active');
       await cache.set(cacheKeyForRegion(regionId), incidents, INCIDENTS_CACHE_TTL);
     } catch (error) {
       logger.warn(`Failed to persist incidents to Redis for ${regionId}:`, { error });
@@ -226,10 +230,21 @@ class AggregatorService {
 
     const cronAircraft = this.buildCronExpression(config.pollIntervals.aircraft, '*/5 * * * * *');
     scheduler.schedule(`aircraft-${tag}`, cronAircraft, async () => {
-      if (sse.anyClientWantsAircraft()) {
+      if (sse.anyClientWantsAircraftFor(region.id)) {
         await this.fetchAircraft(region);
       } else {
-        logger.debug(`Skipping aircraft (${tag}) - no clients want aircraft data`);
+        // Drop frozen positions once polling stops — otherwise the connect
+        // snapshot serves aircraft where they were hours ago.
+        const state = this.getState(region.id);
+        if (state.aircraft.size > 0) {
+          state.aircraft.clear();
+          sse.broadcast('aircraft:update', {
+            regionId: region.id,
+            aircraft: [],
+            timestamp: new Date().toISOString(),
+          });
+        }
+        logger.debug(`Skipping aircraft (${tag}) - no clients want aircraft data for this region`);
       }
     }, false);
 
@@ -306,36 +321,40 @@ class AggregatorService {
 
   private async fetchTrafficIncidents(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.trafficIncidentFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.trafficIncidentFetchers[i].incidentSource);
       }
     }
   }
 
   private async fetchCrime(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.crimeFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.crimeFetchers[i].incidentSource);
       }
     }
   }
 
   private async fetchShotSpotter(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.shotspotterFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.shotspotterFetchers[i].incidentSource);
       }
     }
   }
 
   private async fetchEmergencyAlerts(region: RegionPack): Promise<void> {
     const results = await Promise.all(region.emergencyAlertFetchers.map(f => f.fetch()));
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.success && result.data) {
-        await this.processIncidents(region, result.data);
+        await this.processIncidents(region, result.data, region.emergencyAlertFetchers[i].incidentSource);
       }
     }
   }
@@ -344,7 +363,7 @@ class AggregatorService {
     if (!region.transitFetcher) return;
     const result = await region.transitFetcher.fetch();
     if (result.success && result.data) {
-      await this.processIncidents(region, result.data);
+      await this.processIncidents(region, result.data, region.transitFetcher.incidentSource);
     }
   }
 
@@ -432,8 +451,14 @@ class AggregatorService {
 
   // ---------- shared processing ----------
 
-  private async processIncidents(region: RegionPack, newIncidents: Incident[]): Promise<void> {
-    if (newIncidents.length === 0) return;
+  private async processIncidents(
+    region: RegionPack,
+    newIncidents: Incident[],
+    source?: DataSource,
+  ): Promise<void> {
+    // Without an explicit source, an empty batch carries no information —
+    // with one, it may still cross-clear below (feed went from N to 0).
+    if (newIncidents.length === 0 && !source) return;
 
     const state = this.getState(region.id);
     const processedIds = new Set<string>();
@@ -459,7 +484,7 @@ class AggregatorService {
     }
 
     // Cross-clear: only for sources whose feed is a complete snapshot.
-    const sourcePrefix = newIncidents[0]?.source;
+    const sourcePrefix = source ?? newIncidents[0]?.source;
     if (sourcePrefix && region.sourcesWithCompleteListing.includes(sourcePrefix)) {
       for (const [id, incident] of state.incidents) {
         if (incident.source === sourcePrefix && !processedIds.has(id)) {
@@ -483,21 +508,49 @@ class AggregatorService {
     const now = Date.now();
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    const SIXTY_DAYS = 60 * 24 * 60 * 60 * 1000;
 
+    // Windows must match the fetchers' own fetch-side filters — a source
+    // whose feed returns records older than its window here would clear and
+    // re-add them every cycle.
     const expirationMs: Record<string, number> = {
       'dc-crime': THIRTY_DAYS,
       'moco-crime': THIRTY_DAYS,
       'pg-crime': THIRTY_DAYS,
-      'bpd-crime': THIRTY_DAYS,
+      'bpd-crime': SIXTY_DAYS, // BPD feed lags ~1 month behind real time
+      'dc-shotspotter': THIRTY_DAYS,
       'default': TWENTY_FOUR_HOURS,
     };
 
+    // Cleared incidents were already broadcast as removed and nothing serves
+    // them — drop them after a grace period so the Maps don't grow forever.
+    const CLEARED_RETENTION_MS = 60 * 60 * 1000;
+
     const changedRegions = new Set<RegionId>();
     let clearedCount = 0;
+    let deletedCount = 0;
 
     for (const [regionId, state] of this.state) {
+      // Complete-snapshot sources are governed by feed presence (absence
+      // implies cleared, handled in processIncidents) — age-sweeping them
+      // just makes legitimately long-running items (work zones) blink.
+      const completeListing = new Set(
+        allRegions.find(r => r.id === regionId)?.sourcesWithCompleteListing ?? [],
+      );
+
       for (const [id, incident] of state.incidents) {
-        if (incident.status !== 'active') continue;
+        if (incident.status !== 'active') {
+          const clearedAge = now - new Date(incident.updatedAt).getTime();
+          if (clearedAge > CLEARED_RETENTION_MS) {
+            state.incidents.delete(id);
+            database.deleteIncident(id);
+            deletedCount++;
+            changedRegions.add(regionId);
+          }
+          continue;
+        }
+
+        if (completeListing.has(incident.source)) continue;
 
         const incidentAge = now - new Date(incident.timestamp).getTime();
         const maxAge = expirationMs[incident.source] || expirationMs['default'];
@@ -513,8 +566,8 @@ class AggregatorService {
       }
     }
 
-    if (clearedCount > 0) {
-      logger.info(`Cleaned up ${clearedCount} stale incidents across ${changedRegions.size} region(s)`);
+    if (changedRegions.size > 0) {
+      logger.info(`Cleanup: cleared ${clearedCount}, deleted ${deletedCount} incidents across ${changedRegions.size} region(s)`);
       for (const regionId of changedRegions) {
         this.persistIncidents(regionId).catch(() => {});
       }
@@ -544,9 +597,7 @@ class AggregatorService {
       cameras: this.flatten(s => s.cameras.values(), regionId),
       weather: this.flatten(s => s.weatherAlerts.values(), regionId),
       airQuality: this.flatten(s => s.airQuality, regionId),
-      currentWeather: regionId
-        ? ({ ...currentByRegion, ...(regionId === 'dc' ? { dc: this.getState('dc').currentWeather } : {}), ...(regionId === 'boise' ? { boise: this.getState('boise').currentWeather } : {}) })
-        : currentByRegion,
+      currentWeather: currentByRegion,
       aircraft: this.flatten(s => s.aircraft.values(), regionId),
       news: this.flatten(s => s.news, regionId),
     };
