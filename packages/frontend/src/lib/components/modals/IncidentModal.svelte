@@ -64,6 +64,7 @@
       dc: 'DC DOT',
       vdot: 'VA Traffic',
       landmark: 'Webcam',
+      idaho511: 'Idaho 511',
     };
     return labels[source] || source.toUpperCase();
   }

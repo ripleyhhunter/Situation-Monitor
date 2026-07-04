@@ -124,6 +124,10 @@ export class Idaho511CamerasFetcher extends BaseFetcher<Camera> {
     if (sites.length === 0) {
       throw new Error('Idaho 511 cameras: roster came back empty — treating as contract drift');
     }
+    if (Number.isFinite(total) && sites.length < total) {
+      // Truncation would silently drop cameras depending on server order.
+      throw new Error(`Idaho 511 cameras: fetched ${sites.length} of ${total} roster rows — pagination truncated`);
+    }
 
     const cameras: Camera[] = [];
     for (const site of sites) {
