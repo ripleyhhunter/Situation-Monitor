@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sse } from '../services/sse.js';
+import { sse, BATCH_CHUNK } from '../services/sse.js';
 import { aggregator } from '../services/aggregator.js';
 import { regionsById, defaultRegionId } from '../regions/index.js';
 import logger from '../logger.js';
@@ -41,13 +41,13 @@ router.get('/', (req, res) => {
   // instead of ~6,800 individual ones — the difference between a connect
   // snapshot the browser absorbs in one paint and a multi-second UI freeze.
   if (supportsBatch) {
-    for (let i = 0; i < data.incidents.length; i += 500) {
-      const chunk = data.incidents.slice(i, i + 500);
+    for (let i = 0; i < data.incidents.length; i += BATCH_CHUNK) {
+      const chunk = data.incidents.slice(i, i + BATCH_CHUNK);
       res.write(`event: incident:batch\n`);
       res.write(`data: ${JSON.stringify({ type: 'incident:batch', data: { incidents: chunk }, timestamp: new Date().toISOString() })}\n\n`);
     }
-    for (let i = 0; i < data.cameras.length; i += 500) {
-      const chunk = data.cameras.slice(i, i + 500);
+    for (let i = 0; i < data.cameras.length; i += BATCH_CHUNK) {
+      const chunk = data.cameras.slice(i, i + BATCH_CHUNK);
       res.write(`event: camera:batch\n`);
       res.write(`data: ${JSON.stringify({ type: 'camera:batch', data: { cameras: chunk }, timestamp: new Date().toISOString() })}\n\n`);
     }

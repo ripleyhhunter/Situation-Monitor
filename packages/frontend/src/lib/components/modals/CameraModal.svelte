@@ -65,7 +65,9 @@
           {#if camera.source === 'idaho511'}
             Source: Idaho 511 / ITD &bull; Live still — refreshes every 15-60s
           {:else}
-            Source: {camera.source.toUpperCase()} &bull; Updated {formatRelativeTime(camera.lastUpdated)}
+            <!-- lastUpdated is a roster stamp, not an image age — showing
+                 "Updated 3 days ago" over a live thumbnail misleads. -->
+            Source: {camera.source.toUpperCase()}
           {/if}
         </p>
       </div>

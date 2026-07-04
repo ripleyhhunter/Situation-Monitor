@@ -53,6 +53,13 @@ class AggregatorService {
   private state = new Map<RegionId, RegionState>();
   private initialized = false;
 
+  // When the aggregator FIRST saw an incident as non-active. Cleared
+  // retention must be measured from this moment: feeds like PulsePoint and
+  // DC 311 deliver already-cleared items whose feed-derived updatedAt is
+  // hours old — measuring retention against updatedAt deleted them
+  // instantly, and the next poll re-added them (a delete/re-add loop).
+  private clearedObservedAt = new Map<string, number>();
+
   constructor() {
     for (const region of allRegions) {
       this.state.set(region.id, this.emptyState());
@@ -331,7 +338,18 @@ class AggregatorService {
     const changed: Camera[] = [];
     for (const camera of allCameras) {
       const existing = state.cameras.get(camera.id);
-      if (!existing || existing.lastUpdated !== camera.lastUpdated) {
+      // Content comparison, not just lastUpdated: roster stamps are stable
+      // per process, but mdchart names/positions/stream URLs do drift and
+      // must still propagate.
+      if (
+        !existing ||
+        existing.lastUpdated !== camera.lastUpdated ||
+        existing.name !== camera.name ||
+        existing.streamUrl !== camera.streamUrl ||
+        existing.imageUrl !== camera.imageUrl ||
+        existing.location.lat !== camera.location.lat ||
+        existing.location.lng !== camera.location.lng
+      ) {
         state.cameras.set(camera.id, camera);
         database.upsertCamera(camera);
         changed.push(camera);
@@ -590,15 +608,22 @@ class AggregatorService {
 
       for (const [id, incident] of state.incidents) {
         if (incident.status !== 'active') {
-          const clearedAge = now - new Date(incident.updatedAt).getTime();
-          if (clearedAge > CLEARED_RETENTION_MS) {
+          const observedAt = this.clearedObservedAt.get(id);
+          if (observedAt === undefined) {
+            this.clearedObservedAt.set(id, now);
+            continue;
+          }
+          if (now - observedAt > CLEARED_RETENTION_MS) {
             state.incidents.delete(id);
             database.deleteIncident(id);
+            this.clearedObservedAt.delete(id);
             deletedCount++;
             changedRegions.add(regionId);
           }
           continue;
         }
+        // Reactivated after being observed cleared — reset the clock.
+        this.clearedObservedAt.delete(id);
 
         if (completeListing.has(incident.source)) continue;
 

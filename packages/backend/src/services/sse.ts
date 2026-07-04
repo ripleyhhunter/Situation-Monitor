@@ -3,7 +3,7 @@ import type { Camera, Incident, SSEEvent, SSEEventType, RegionId } from '../type
 import logger from '../logger.js';
 
 /** Items per batched SSE event — keeps individual frames a modest size. */
-const BATCH_CHUNK = 500;
+export const BATCH_CHUNK = 500;
 
 function* chunks<T>(items: T[], size: number): Generator<T[]> {
   for (let i = 0; i < items.length; i += size) {

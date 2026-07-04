@@ -588,7 +588,7 @@
 
     for (const camera of cameras) {
       seen.add(camera.id);
-      const stateKey = `${camera.location.lat},${camera.location.lng},${camera.lastUpdated}`;
+      const stateKey = `${camera.location.lat},${camera.location.lng},${camera.lastUpdated},${camera.name},${camera.streamUrl ?? ''},${camera.imageUrl ?? ''}`;
       const existing = cameraMarkerById.get(camera.id);
       if (existing && cameraStateById.get(camera.id) === stateKey) continue;
       if (existing) {

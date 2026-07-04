@@ -434,7 +434,6 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
   }
 
   private async normalizeIncident(raw: ParsedIncident, _index: number): Promise<Incident> {
-    const now = new Date().toISOString();
     const typeInfo = this.getTypeInfo(raw.type);
 
     const stableId = this.generateStableId(raw.address, raw.type, raw.time);
@@ -595,7 +594,10 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
    * status flip or unit change -> new updatedAt (one rebroadcast).
    */
   private contentVersion(raw: { time?: string; status?: string; units?: unknown }): string {
-    const base = Date.parse(this.parseTime(raw.time ?? ''));
+    // No parseable time -> anchor at epoch, NOT wall-clock: parseTime('')
+    // falls back to `now`, which would re-version (and rebroadcast) the
+    // incident on every scrape — the exact churn this fingerprint removes.
+    const base = raw.time ? Date.parse(this.parseTime(raw.time)) : 0;
     const content = `${raw.status ?? ''}|${raw.units ?? ''}`;
     let hash = 0;
     for (let i = 0; i < content.length; i++) {
