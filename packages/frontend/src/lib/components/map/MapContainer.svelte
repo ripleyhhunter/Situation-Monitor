@@ -1000,7 +1000,6 @@
 
   /* Camera marker styles */
   :global(.camera-marker),
-  :global(.dc-camera-marker),
   :global(.landmark-marker) {
     border-radius: 4px;
     display: flex;
@@ -1010,7 +1009,6 @@
   }
 
   :global(.camera-marker:hover),
-  :global(.dc-camera-marker:hover),
   :global(.landmark-marker:hover) {
     transform: scale(1.15);
   }

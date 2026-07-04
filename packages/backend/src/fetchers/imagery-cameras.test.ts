@@ -21,23 +21,35 @@ describe('extractCameraList', () => {
 });
 
 describe('normalizeWeatherBugCamera', () => {
-  const row = { id: 'WDCNP', name: 'Hampton Inn', lat: 38.8749, lng: -77.0063 };
+  const row = {
+    id: 'WDCNP',
+    name: 'Hampton Inn',
+    lat: 38.8749,
+    lng: -77.0063,
+    image: 'https://cameras-cam.cdn.weatherbug.net/WDCNP/2026/07/04/070420261515_s.jpg',
+  };
 
-  it('normalizes with the stable instacam still URL', () => {
+  it('normalizes with the CDN still upgraded to the _l variant', () => {
     const cam = normalizeWeatherBugCamera(row);
     expect(cam).toMatchObject({
       id: 'weatherbug-WDCNP',
       source: 'weatherbug',
-      imageUrl: 'https://wwc.instacam.com/instacamimg/WDCNP/WDCNP_l.jpg',
+      // NEVER wwc.instacam.com — that host serves a mismatched TLS cert
+      // that every browser rejects.
+      imageUrl: 'https://cameras-cam.cdn.weatherbug.net/WDCNP/2026/07/04/070420261515_l.jpg',
     });
   });
 
-  it('drops the far-south Charles County cluster (out of DMV bbox)', () => {
+  it('drops rows without a CDN image (the legacy host is not a fallback)', () => {
+    expect(normalizeWeatherBugCamera({ ...row, image: undefined })).toBeNull();
+  });
+
+  it('drops out-of-DMV-bbox rows', () => {
     expect(normalizeWeatherBugCamera({ ...row, lat: 38.35, lng: -76.95 })).toBeNull();
   });
 
   it('drops rows without coordinates', () => {
-    expect(normalizeWeatherBugCamera({ id: 'X', name: 'no coords' })).toBeNull();
+    expect(normalizeWeatherBugCamera({ id: 'X', name: 'no coords', image: row.image })).toBeNull();
   });
 });
 

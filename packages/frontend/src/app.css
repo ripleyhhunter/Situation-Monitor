@@ -59,18 +59,6 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.dc-camera-marker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background-color: #64748b;
-  border-radius: 4px;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  opacity: 0.8;
-}
 
 .landmark-marker {
   display: flex;

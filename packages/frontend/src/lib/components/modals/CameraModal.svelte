@@ -283,7 +283,7 @@
               Open Image
             </a>
           {/if}
-          {#if camera.source === 'landmark' && camera.streamUrl}
+          {#if camera.source === 'landmark' && camera.streamUrl && !isHls}
             <a
               href={camera.streamUrl}
               target="_blank"

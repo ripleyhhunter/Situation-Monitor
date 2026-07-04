@@ -11,18 +11,21 @@ import logger from '../logger.js';
  *   - Roster: any weather-camera page server-renders an escaped-JSON
  *     cameraList of the ~30 regional cameras with ids and coordinates
  *     (same page-scrape posture as the Idaho 511 internal endpoints).
- *   - Stills: the STABLE per-camera URL wwc.instacam.com/instacamimg/
- *     {ID}/{ID}_l.jpg serves the newest frame (verified minutes-old) —
- *     no timestamp scraping needed, loads straight into <img>.
+ *   - Stills: each roster row's `image` field points at WeatherBug's own
+ *     CDN (cameras-cam.cdn.weatherbug.net) with VALID TLS; the _l.jpg
+ *     variant is the 1280x720 frame. The legacy wwc.instacam.com host
+ *     must NOT be used — it serves CloudFront's default certificate
+ *     (hostname mismatch), so every browser rejects it even though curl
+ *     -k sees fresh bytes. Timestamped URLs refresh with the 6h roster
+ *     refetch (~30 camera updates per 6h — negligible churn).
  *   - This replaces the three old hand-curated WeatherBug landmark
  *     entries (MOWDC/WJLAW/NTNLH), which shipped no imageUrl at all.
  */
 
 const ROSTER_PAGE = 'https://www.weatherbug.com/weather-camera/washington-dc-20001/MOWDC';
-const STILL_BASE = 'https://wwc.instacam.com/instacamimg';
 
-// DMV envelope — the roster also carries a far-south Charles County MD
-// cluster that would just be map clutter.
+// DMV envelope — defensive: today's 30-row roster is entirely inside it,
+// but WeatherBug regional rosters have carried far-flung clusters before.
 const BOUNDS = { lamin: 38.55, lamax: 39.20, lomin: -77.60, lomax: -76.60 };
 
 const ROSTER_STAMP = new Date().toISOString();
@@ -34,6 +37,8 @@ export interface WeatherBugCamera {
   state?: string;
   lat?: number;
   lng?: number;
+  /** Timestamped still on cameras-cam.cdn.weatherbug.net (valid TLS). */
+  image?: string;
 }
 
 /**
@@ -76,10 +81,13 @@ export function extractCameraList(html: string): WeatherBugCamera[] {
   }
 }
 
-/** Normalize one roster row (null = out-of-area/unusable). */
+/** Normalize one roster row (null = out-of-area/no-image/unusable). */
 export function normalizeWeatherBugCamera(row: WeatherBugCamera): Camera | null {
   if (!row.id || typeof row.lat !== 'number' || typeof row.lng !== 'number') return null;
   if (row.lat < BOUNDS.lamin || row.lat > BOUNDS.lamax || row.lng < BOUNDS.lomin || row.lng > BOUNDS.lomax) return null;
+  // No CDN still = nothing to show; the imageless legacy host is a
+  // browser TLS failure, not a fallback.
+  if (!row.image) return null;
 
   return {
     id: `weatherbug-${row.id}`,
@@ -87,7 +95,8 @@ export function normalizeWeatherBugCamera(row: WeatherBugCamera): Camera | null 
     name: row.name?.trim() || `WeatherBug ${row.id}`,
     location: { lat: row.lat, lng: row.lng },
     source: 'weatherbug',
-    imageUrl: `${STILL_BASE}/${row.id}/${row.id}_l.jpg`,
+    // Upgrade the roster's small (_s) frame to the 1280x720 _l variant.
+    imageUrl: row.image.replace(/_s\.jpg$/i, '_l.jpg'),
     streamUrl: `https://www.weatherbug.com/weather-camera/?cam=${row.id}`,
     lastUpdated: ROSTER_STAMP,
   };
