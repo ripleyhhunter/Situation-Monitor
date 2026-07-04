@@ -15,7 +15,7 @@
  *    the network returns).
  */
 
-import { build, files, prerendered, version } from '$service-worker';
+import { base, build, files, prerendered, version } from '$service-worker';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -26,7 +26,11 @@ sw.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(ASSETS))
+      // cache: 'reload' bypasses the browser HTTP cache. Without it, GitHub
+      // Pages' max-age=600 on the shell means a deploy-N+1 install can store
+      // the STALE deploy-N shell (whose hashed chunks are now 404) into the
+      // new versioned cache — a white screen until the next deploy.
+      .then((cache) => cache.addAll(ASSETS.map((path) => new Request(path, { cache: 'reload' }))))
       .then(() => sw.skipWaiting())
   );
 });
@@ -54,26 +58,27 @@ sw.addEventListener('fetch', (event) => {
   // tiles etc. stay untouched — their own cache headers are correct).
   if (url.origin !== sw.location.origin) return;
 
-  const isAsset = ASSETS.includes(url.pathname);
-
-  if (isAsset) {
+  // Navigations FIRST: the prerendered shell's pathname is also in ASSETS,
+  // so checking assets first would serve the app's main URL cache-first and
+  // leave users a deploy behind on every load. Network-first keeps deploys
+  // prompt; the cached shell only serves offline.
+  if (request.mode === 'navigate') {
     event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(request);
-        return cached ?? fetch(request);
+      fetch(request).catch(async () => {
+        const cache = await caches.open(CACHE_NAME);
+        const shell =
+          (await cache.match(prerendered[0] ?? `${base}/`)) ?? (await cache.match(`${base}/`));
+        return shell ?? Response.error();
       })
     );
     return;
   }
 
-  if (request.mode === 'navigate') {
+  if (ASSETS.includes(url.pathname)) {
     event.respondWith(
-      fetch(request).catch(async () => {
-        const cache = await caches.open(CACHE_NAME);
-        // The SPA fallback shell — any prerendered page will do.
-        const shell =
-          (await cache.match(prerendered[0] ?? '/')) ?? (await cache.match('/'));
-        return shell ?? Response.error();
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(request);
+        return cached ?? fetch(request);
       })
     );
   }
