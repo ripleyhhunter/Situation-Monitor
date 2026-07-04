@@ -46,3 +46,5 @@ packages/backend/pulsepoint-*.png
 
 # Startup script (personal)
 start-monitor.bat
+start-public.bat
+start-public-hidden.vbs
