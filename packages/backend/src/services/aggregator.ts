@@ -14,6 +14,7 @@ import { allRegions } from '../regions/index.js';
 import { scheduler } from './scheduler.js';
 import { sse } from './sse.js';
 import { database } from './database.js';
+import { history } from './history.js';
 import { cache } from './cache.js';
 import { geocache } from './geocache.js';
 import config from '../config.js';
@@ -97,6 +98,8 @@ class AggregatorService {
 
     logger.info('Initializing aggregator service');
 
+    history.initialize();
+
     await geocache.initialize();
     const geoStats = geocache.getStats();
     logger.info(`Geocache initialized with ${geoStats.memorySize} cached addresses`);
@@ -137,11 +140,24 @@ class AggregatorService {
         }
 
         logger.info(`Loaded ${loadedCount} cached incidents from Redis for ${regionId} (${cached.length} total in cache)`);
-      } else {
-        logger.debug(`No cached incidents in Redis for ${regionId}`);
+        return;
       }
+      logger.debug(`No cached incidents in Redis for ${regionId}`);
     } catch (error) {
       logger.warn(`Failed to load cached incidents for ${regionId}:`, { error });
+    }
+
+    // Redis snapshot unavailable (it's optional) — restore from the durable
+    // SQLite history instead so a restart doesn't blank the dashboard.
+    const state = this.getState(regionId);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const restored = history.getRecentActive(regionId, since);
+    for (const incident of restored) {
+      state.incidents.set(incident.id, incident);
+      database.upsertIncident(incident);
+    }
+    if (restored.length > 0) {
+      logger.info(`Restored ${restored.length} active incidents from SQLite history for ${regionId}`);
     }
   }
 
@@ -473,11 +489,13 @@ class AggregatorService {
       if (!existing) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
+        history.upsertIncident(incident);
         sse.broadcast('incident:new', incident);
         hasChanges = true;
       } else if (existing.updatedAt !== incident.updatedAt) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
+        history.upsertIncident(incident);
         sse.broadcast('incident:update', incident);
         hasChanges = true;
       }
@@ -492,6 +510,7 @@ class AggregatorService {
             incident.status = 'cleared';
             incident.updatedAt = new Date().toISOString();
             database.updateIncidentStatus(id, 'cleared');
+            history.markCleared(id, incident.updatedAt);
             sse.broadcast('incident:clear', { id, regionId: region.id });
             hasChanges = true;
           }
@@ -560,6 +579,7 @@ class AggregatorService {
           incident.status = 'cleared';
           incident.updatedAt = new Date().toISOString();
           database.updateIncidentStatus(id, 'cleared');
+          history.markCleared(id, incident.updatedAt);
           sse.broadcast('incident:clear', { id, regionId });
           clearedCount++;
           changedRegions.add(regionId);
@@ -675,6 +695,7 @@ class AggregatorService {
         await (pp as { shutdown: () => Promise<void> }).shutdown().catch(() => {});
       }
     }
+    history.close();
     logger.info('Aggregator service shut down');
   }
 }
