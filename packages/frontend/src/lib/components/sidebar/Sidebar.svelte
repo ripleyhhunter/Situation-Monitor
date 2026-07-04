@@ -3,12 +3,13 @@
   import IncidentList from './IncidentList.svelte';
   import AircraftPanel from './AircraftPanel.svelte';
   import NewsPanel from './NewsPanel.svelte';
+  import TrendsPanel from './TrendsPanel.svelte';
   import { filteredIncidents, filters } from '$stores/filters';
   import { incidentCounts } from '$stores/incidents';
   import { aircraftCounts } from '$stores/aircraft';
   import { newsCount } from '$stores/news';
 
-  let activeTab: 'incidents' | 'filters' | 'aircraft' | 'news' = 'incidents';
+  let activeTab: 'incidents' | 'filters' | 'aircraft' | 'news' | 'trends' = 'incidents';
 
   $: totalFiltered = $filteredIncidents.length;
   $: totalAll = Object.values($incidentCounts).reduce((a, b) => a + b, 0);
@@ -83,6 +84,22 @@
     {/if}
     <button
       type="button"
+      onclick={() => (activeTab = 'trends')}
+      class="flex-1 px-2 py-3 text-sm font-medium transition-colors"
+      class:text-indigo-600={activeTab === 'trends'}
+      class:dark:text-indigo-400={activeTab === 'trends'}
+      class:border-b-2={activeTab === 'trends'}
+      class:border-indigo-600={activeTab === 'trends'}
+      class:text-gray-500={activeTab !== 'trends'}
+      class:dark:text-gray-400={activeTab !== 'trends'}
+      class:hover:text-gray-700={activeTab !== 'trends'}
+      class:dark:hover:text-gray-300={activeTab !== 'trends'}
+      aria-label="Trends"
+    >
+      📊
+    </button>
+    <button
+      type="button"
       onclick={() => (activeTab = 'filters')}
       class="flex-1 px-2 py-3 text-sm font-medium transition-colors"
       class:text-indigo-600={activeTab === 'filters'}
@@ -106,6 +123,8 @@
       <NewsPanel />
     {:else if activeTab === 'aircraft'}
       <AircraftPanel />
+    {:else if activeTab === 'trends'}
+      <TrendsPanel />
     {:else}
       <FilterPanel />
     {/if}
