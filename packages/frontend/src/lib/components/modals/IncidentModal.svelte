@@ -161,6 +161,11 @@
         <p class="text-xs text-gray-500 dark:text-gray-500 mt-1">
           {formatCoordinates(incident.location.lat, incident.location.lng)}
         </p>
+        {#if incident.metadata?.approximate}
+          <p class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+            ⚠ Approximate location — the exact address couldn't be pinpointed; the marker shows the general area only.
+          </p>
+        {/if}
       </div>
 
       <!-- Time -->

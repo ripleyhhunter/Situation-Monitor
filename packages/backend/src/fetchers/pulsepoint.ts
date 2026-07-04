@@ -471,6 +471,11 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
         units: raw.units,
         duration: raw.duration,
         geocoded: geocoded ? !geocoded.cached : false,
+        // True when the pin is NOT the exact address: street centroid
+        // (geocoder degraded) or the synthetic region/quadrant fallback.
+        // The frontend renders these differently — a confident-looking
+        // pin blocks from the real scene misleads worse than no pin.
+        approximate: geocoded ? geocoded.approximate : true,
       },
     };
   }

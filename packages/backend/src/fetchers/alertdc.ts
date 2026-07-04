@@ -203,6 +203,7 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
         link: item.link,
         rawPubDate: item.pubDate,
         geocoded: location.geocoded,
+        approximate: location.approximate,
       },
     };
   }
@@ -376,10 +377,11 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
     lng: number;
     address?: string;
     geocoded: boolean;
+    approximate: boolean;
   }> {
     // Try to extract address from description
     const address = this.extractAddress(description);
-    
+
     if (address) {
       // Use centralized geocache service (persisted to Redis).
       // AlertDC is inherently a DC feed, so the region context is fixed.
@@ -394,17 +396,20 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
           lng: result.lng,
           address,
           geocoded: !result.cached,
+          approximate: result.approximate,
         };
       }
     }
-    
-    // Fall back to deterministic offset
+
+    // Fall back to deterministic offset — a synthetic placement, so it
+    // must surface as approximate (geocache contract for last resorts).
     const offset = this.deterministicOffset(description);
     return {
       lat: config.defaultLat + offset.latOffset,
       lng: config.defaultLng + offset.lngOffset,
       address: address || undefined,
       geocoded: false,
+      approximate: true,
     };
   }
 
