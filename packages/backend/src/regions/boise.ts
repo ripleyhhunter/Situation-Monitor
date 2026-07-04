@@ -108,8 +108,9 @@ export const boiseRegion: RegionPack = {
   // cleared/ended: ITD WZDx and ACHD RITA are full listings, and WFIGS
   // "Current" removes fires once contained/out.
   // 'nws-gauge' emits only currently-flooding gauges — absence implies
-  // the water receded.
-  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs', 'nws-gauge'],
+  // the water receded. 'usgs-quake' is a complete snapshot of its rolling
+  // 7-day window — absence means the event aged out or USGS deleted it.
+  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs', 'nws-gauge', 'usgs-quake'],
 
   cameraFetchers: [boiseLandmarkWebcamsFetcher, idaho511CamerasFetcher],
   trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher],

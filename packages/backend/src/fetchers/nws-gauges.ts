@@ -57,7 +57,9 @@ export function normalizeFloodingGauge(gauge: NwpsGauge, regionId: RegionId): In
   const severity = FLOOD_SEVERITY[category];
   if (!severity) return null; // no_flooding / not_defined / obs_not_current
   if (typeof gauge.latitude !== 'number' || typeof gauge.longitude !== 'number') return null;
-  if (!observed.validTime) return null;
+  // NWPS emits Go's zero-time sentinel (0001-01-01...) on missing
+  // observations — reject anything implausibly old along with it.
+  if (!observed.validTime || observed.validTime < '2000-01-01') return null;
 
   // Sentinels mean the reading is missing — don't report a stage value.
   const primaryValid = typeof observed.primary === 'number' && observed.primary > -999;

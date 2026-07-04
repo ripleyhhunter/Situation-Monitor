@@ -81,7 +81,7 @@ export const dcRegion: RegionPack = {
 
   nwsZones: DC_NWS_ZONES,
 
-  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs', 'nws-gauge'],
+  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs', 'nws-gauge', 'usgs-quake'],
 
   cameraFetchers: [
     mdchartCamerasFetcher,

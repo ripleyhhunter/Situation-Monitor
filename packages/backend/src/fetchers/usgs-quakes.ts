@@ -16,6 +16,11 @@ import logger from '../logger.js';
  */
 
 const FDSN_URL = 'https://earthquake.usgs.gov/fdsnws/event/1/query';
+// The point-radius + window query IS a complete snapshot of its window, so
+// the source is complete-listing: USGS-deleted events (false alarms) and
+// re-identified events (preferred-ID changes) drop off the next fresh
+// fetch instead of lingering for days, and there is no age-sweep boundary
+// churn at the 7-day edge.
 const RADIUS_KM = 200;
 export const QUAKE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -52,7 +57,11 @@ export function normalizeQuakeFeature(feature: QuakeFeature, regionId: RegionId)
   const coords = feature.geometry?.coordinates;
   if (!feature.id || !coords || coords.length < 2) return null;
   if (typeof props.time !== 'number' || typeof props.updated !== 'number') return null;
-  const mag = typeof props.mag === 'number' ? props.mag : 0;
+  // Fresh unreviewed events can carry a null magnitude — keep the event
+  // (dropping would hide a real quake until review) but don't fabricate
+  // an "M0.0" measurement.
+  const hasMag = typeof props.mag === 'number';
+  const mag = hasMag ? (props.mag as number) : 0;
 
   return {
     id: `usgs-quake-${feature.id}`,
@@ -69,9 +78,9 @@ export function normalizeQuakeFeature(feature: QuakeFeature, regionId: RegionId)
     // feed's own revision time (never wall-clock now).
     updatedAt: new Date(props.updated).toISOString(),
     source: 'usgs-quake',
-    title: `M${mag.toFixed(1)} Earthquake${props.place ? ` — ${props.place}` : ''}`,
+    title: `${hasMag ? `M${mag.toFixed(1)}` : 'M?'} Earthquake${props.place ? ` — ${props.place}` : ''}`,
     description: [
-      `Magnitude ${mag.toFixed(1)}`,
+      hasMag ? `Magnitude ${mag.toFixed(1)}` : 'Magnitude pending review',
       coords.length > 2 && typeof coords[2] === 'number' ? `Depth: ${coords[2].toFixed(1)} km` : null,
     ]
       .filter(Boolean)
@@ -92,6 +101,8 @@ export interface UsgsQuakesFetcherOptions {
 }
 
 export class UsgsQuakesFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource = 'usgs-quake' as const;
+
   private regionId: RegionId;
   private lat: number;
   private lng: number;
