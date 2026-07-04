@@ -1,18 +1,20 @@
 import { BaseFetcher } from './base.js';
-import type { Incident } from '../types/index.js';
+import type { DataSource, Incident, RegionId } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
 /**
- * Idaho Transportation Department WZDx (Work Zone Data Exchange) feed.
+ * Generic WZDx (Work Zone Data Exchange) fetcher — GeoJSON FeatureCollection
+ * per the WZDx v4.x spec, filtered to the region's bounding box.
  *
- * Source: https://511.idaho.gov/api/wzdx
- *   - No API key required.
- *   - GeoJSON FeatureCollection per WZDx v4.x spec.
- *   - Includes lane closures, restrictions, construction events statewide.
+ * Instances:
+ *   - Idaho: https://511.idaho.gov/api/wzdx (ITD statewide, keyless)
+ *   - Maryland: https://filter.ritis.org/wzdx_v4.1/mdot.geojson (MDOT via
+ *     RITIS, keyless, regenerates every 60s — registered in the national
+ *     WZDx feed registry)
  *
- * We filter to the configured region's bounding box so callers in non-Idaho
- * regions don't suddenly see Idaho-wide work zones.
+ * Both are complete snapshots — absence from a successful poll implies the
+ * work zone ended, so instances are registered in sourcesWithCompleteListing.
  */
 
 interface WzdxGeometry {
@@ -51,32 +53,43 @@ interface WzdxResponse {
   features?: WzdxFeature[];
 }
 
-export interface ItdWzdxFetcherOptions {
+export interface WzdxFetcherOptions {
+  /** Incident.source value; also used as the fetcher/cache name. */
+  source: DataSource;
+  url: string;
+  regionId: RegionId;
+  /** Human label used in log lines, e.g. "ITD WZDx". */
+  label: string;
   /** Bounding box to filter events to (region of interest). */
   bounds: { lamin: number; lamax: number; lomin: number; lomax: number };
 }
 
-export class ItdWzdxFetcher extends BaseFetcher<Incident> {
-  readonly incidentSource = 'itd-wzdx' as const;
+export class WzdxFetcher extends BaseFetcher<Incident> {
+  readonly incidentSource: DataSource;
 
-  private static readonly URL = 'https://511.idaho.gov/api/wzdx';
+  private url: string;
+  private regionId: RegionId;
+  private label: string;
+  private bounds: WzdxFetcherOptions['bounds'];
 
-  private bounds: ItdWzdxFetcherOptions['bounds'];
-
-  constructor(options: ItdWzdxFetcherOptions) {
-    super('itd-wzdx', config.cacheTtl.trafficIncidents);
+  constructor(options: WzdxFetcherOptions) {
+    super(options.source, config.cacheTtl.trafficIncidents);
+    this.incidentSource = options.source;
+    this.url = options.url;
+    this.regionId = options.regionId;
+    this.label = options.label;
     this.bounds = options.bounds;
   }
 
   protected async fetchFromApi(): Promise<Incident[]> {
     try {
-      const response = await this.httpGet<WzdxResponse>(ItdWzdxFetcher.URL);
+      const response = await this.httpGet<WzdxResponse>(this.url);
 
       if (!response.features || !Array.isArray(response.features)) {
-        // 'itd-wzdx' is a complete-listing source (and exempt from the age
+        // WZDx sources are complete-listing (and exempt from the age
         // sweep), so a false-empty "success" would wipe every work zone and
-        // is its only clear path. Treat contract drift as a failure.
-        throw new Error('ITD WZDx: unexpected response shape (no features array)');
+        // is their only clear path. Treat contract drift as a failure.
+        throw new Error(`${this.label}: unexpected response shape (no features array)`);
       }
 
       const incidents: Incident[] = [];
@@ -87,10 +100,10 @@ export class ItdWzdxFetcher extends BaseFetcher<Incident> {
         }
       }
 
-      logger.debug(`ITD WZDx: ${incidents.length} work zones in region (of ${response.features.length} statewide)`);
+      logger.debug(`${this.label}: ${incidents.length} work zones in region (of ${response.features.length} in feed)`);
       return incidents;
     } catch (error) {
-      logger.error('Failed to fetch ITD WZDx data', { error });
+      logger.error(`Failed to fetch ${this.label} data`, { error });
       throw error;
     }
   }
@@ -115,7 +128,7 @@ export class ItdWzdxFetcher extends BaseFetcher<Incident> {
     const title = roadNames ? `Work Zone: ${roadNames}${direction}` : (core.name || 'Work Zone');
 
     return {
-      id: `itd-wzdx-${feature.id}`,
+      id: `${this.incidentSource}-${feature.id}`,
       type: 'traffic',
       severity: this.deriveSeverity(props.vehicle_impact),
       location: {
@@ -125,8 +138,8 @@ export class ItdWzdxFetcher extends BaseFetcher<Incident> {
       },
       timestamp: this.safeIso(start),
       updatedAt: this.safeIso(updated),
-      regionId: 'boise',
-      source: 'itd-wzdx',
+      regionId: this.regionId,
+      source: this.incidentSource,
       title,
       description: this.buildDescription(props),
       status: 'active',

@@ -4,7 +4,7 @@ import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { bpdCrimeFetcher } from '../fetchers/bpd-crime.js';
 import { adaCrimeFetcher } from '../fetchers/ada-crime.js';
 import { achdClosuresFetcher } from '../fetchers/achd-closures.js';
-import { ItdWzdxFetcher } from '../fetchers/itd-wzdx.js';
+import { WzdxFetcher } from '../fetchers/wzdx.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
@@ -65,7 +65,13 @@ const boisePulsePoint = new PulsePointFetcher({
   useDcQuadrantFallback: false,
 });
 
-const itdWzdx = new ItdWzdxFetcher({ bounds: TREASURE_VALLEY_BOUNDS });
+const itdWzdx = new WzdxFetcher({
+  source: 'itd-wzdx',
+  url: 'https://511.idaho.gov/api/wzdx',
+  regionId: 'boise',
+  label: 'ITD WZDx',
+  bounds: TREASURE_VALLEY_BOUNDS,
+});
 
 // Wildfire awareness envelope: SW Idaho / eastern Oregon border country,
 // much wider than the Treasure Valley — a large fire 100 km out still

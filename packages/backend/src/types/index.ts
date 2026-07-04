@@ -22,6 +22,9 @@ export type DataSource =
   | 'wmata'
   | 'moco-crime'      // Montgomery County, MD
   | 'pg-crime'        // Prince George's County, MD
+  | 'md-wzdx'         // MDOT work zones (WZDx via RITIS)
+  | 'vdot'            // VDOT 511 Northern Virginia incidents/construction
+  | 'dc-311'          // DC 311 situational service requests
   // Boise region
   | 'bpd-crime'       // Boise PD city crime layer
   | 'ada-crime'       // Ada County CrimeMapper (county agencies, BPD excluded)

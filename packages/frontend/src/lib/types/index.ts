@@ -22,6 +22,9 @@ export type DataSource =
   | 'wmata'
   | 'moco-crime'
   | 'pg-crime'
+  | 'md-wzdx'
+  | 'vdot'
+  | 'dc-311'
   // Boise region
   | 'bpd-crime'
   | 'ada-crime'
