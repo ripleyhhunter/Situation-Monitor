@@ -10,6 +10,7 @@ import { UsgsQuakesFetcher } from '../fetchers/usgs-quakes.js';
 import { NwsGaugesFetcher } from '../fetchers/nws-gauges.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
 import { idaho511CamerasFetcher } from '../fetchers/idaho511-cameras.js';
+import { idaho511EventsFetcher } from '../fetchers/idaho511-events.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -116,10 +117,14 @@ export const boiseRegion: RegionPack = {
   // 'nws-gauge' emits only currently-flooding gauges — absence implies
   // the water receded. 'usgs-quake' is a complete snapshot of its rolling
   // 7-day window — absence means the event aged out or USGS deleted it.
-  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs', 'nws-gauge', 'usgs-quake'],
+  // 'itd-events' is the live Idaho 511 incident board — ITD removes
+  // events once cleared, so absence implies the scene is closed.
+  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs', 'nws-gauge', 'usgs-quake', 'itd-events'],
 
   cameraFetchers: [boiseLandmarkWebcamsFetcher, idaho511CamerasFetcher],
-  trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher],
+  // idaho511EventsFetcher rides the 1-min traffic cron: live crashes /
+  // Waze hazard reports need freshness the 5-15 min profiles can't give.
+  trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher, idaho511EventsFetcher],
   // Two crime sources, partitioned by agency so nothing double-plots:
   // bpd-crime is the city's own layer (freshest available for Boise PD);
   // ada-crime is county CrimeMapper for ACSO/Meridian/Garden City, whose

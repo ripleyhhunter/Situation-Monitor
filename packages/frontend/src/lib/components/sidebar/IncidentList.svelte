@@ -4,6 +4,7 @@
   import { selectIncident } from '$stores/incidents';
   import { formatRelativeTime, getAgeBasedOpacity, isNewIncident, isFreshIncident, getAgeInMinutes } from '$utils/time';
   import { getSeverityColor, getSeverityLabel, getIncidentTypeName } from '$utils/format';
+  import { feedRank } from '$utils/feedRank';
 
   export let incidents: Incident[] = [];
 
@@ -13,9 +14,11 @@
   let userScrolling = false;
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Sort by timestamp (newest first), then by severity
+  // Public-safety first (see feedRank), then newest, then severity
   $: sortedIncidents = [...incidents].sort((a, b) => {
-    // Critical incidents first within same time bucket
+    // Live responder events above roadwork/ongoing situations, always
+    const rankDiff = feedRank(a) - feedRank(b);
+    if (rankDiff !== 0) return rankDiff;
     const timeDiff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     // If within 5 minutes of each other, sort by severity
     if (Math.abs(timeDiff) < 5 * 60 * 1000 && a.severity !== b.severity) {
@@ -40,10 +43,21 @@
         brandNew.forEach(i => newIncidentIds.add(i.id));
         newIncidentIds = newIncidentIds; // Trigger reactivity
         
-        // Auto-scroll to top if user isn't actively scrolling
+        // Auto-scroll to the highest-ranked new item if the user isn't
+        // actively scrolling — with priority ordering a new crash can sort
+        // mid-list, where a plain scroll-to-top would miss it.
         if (!userScrolling && listContainer) {
+          const brandNewIds = new Set(brandNew.map(i => i.id));
           tick().then(() => {
-            listContainer.scrollTo({ top: 0, behavior: 'smooth' });
+            const first = sortedIncidents.find(i => brandNewIds.has(i.id));
+            const el = first
+              ? listContainer.querySelector(`[data-incident-id="${CSS.escape(first.id)}"]`)
+              : null;
+            if (el) {
+              el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            } else {
+              listContainer.scrollTo({ top: 0, behavior: 'smooth' });
+            }
           });
         }
         
@@ -94,10 +108,11 @@
   {:else}
     <ul class="divide-y divide-gray-100 dark:divide-gray-700">
       {#each sortedIncidents as incident (incident.id)}
-        <li 
+        <li
           class="transition-all duration-300"
           class:animate-slide-in={newIncidentIds.has(incident.id)}
           style="opacity: {getListItemOpacity(incident)}"
+          data-incident-id={incident.id}
         >
           <button
             on:click={() => selectIncident(incident)}

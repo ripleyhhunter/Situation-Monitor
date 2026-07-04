@@ -30,6 +30,7 @@ export type DataSource =
   | 'ada-crime'       // Ada County CrimeMapper (county agencies, BPD excluded)
   | 'itd-wzdx'        // Idaho Transportation Dept work zones
   | 'achd'            // Ada County Highway District roadwork/closures
+  | 'itd-events'      // Idaho 511 live incidents + Waze reports (crashes/hazards)
   // Shared / cross-region
   | 'usgs-quake'      // USGS FDSN earthquakes (point-radius per region)
   | 'nws-gauge'       // NWS river gauges at/above action stage

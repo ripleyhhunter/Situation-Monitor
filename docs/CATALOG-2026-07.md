@@ -25,6 +25,7 @@ was broken; this catalog records what was worth **building next**, what was reje
 | 9 | **OpenMHz scanner — real implementation (DC)** | dc | M | The stub's "no public API / 403" conclusion is wrong: the 403 is a User-Agent blocklist; any custom UA passes. Verified live: `dcfd` (DC Fire/EMS) newest call 54 s old; `ffxco`/`mocomdps`/`pgcomd` equally live. `/talkgroups` maps ids to names; `/calls/newer?time=` supports incremental polls. **Boise: zero Idaho systems on OpenMHz (0 of 446)** — the link-out panel stays. |
 | 10 | **SQLite persistence + history & trends** | platform | L | `database.ts` is an in-memory mirror today; nothing survives restart except the Redis active-snapshot. Durable incident history enables a trends panel (counts by type/hour), restart continuity, and future analysis. |
 | 11 | **PWA installability** | platform | S-M | Manifest + icons + minimal service worker (network-first, SSE-safe). Pairs with notifications. |
+| 12 | **Idaho 511 live events + public-safety feed ranking** (added 2026-07-04, user ask: "less traffic, more police/EMS/fire") | boise + UI | M | Verified live: `mapIcons/Incidents` + `mapIcons/WazeIncidents` with DataTables detail rows — real-time crashes, stopped vehicles, road hazards, vehicle fires (4 live I-84 events at probe, minutes-to-hours old, platform-carried `lastUpdated`). Jams and Waze closure reports dropped (WZDx/ACHD already cover closures). Complete listing: ITD removes cleared events (observed live during the build: 4 → 1 within the hour). Paired with `feedRank` sidebar ordering: fire/EMS/gunshot > crime/weather/hazard > live traffic events > `ongoing` roadwork/311 — so ~420 Treasure Valley work zones can no longer bury a dispatch. |
 
 ## Rejected / deferred — and why
 
@@ -46,6 +47,9 @@ was broken; this catalog records what was worth **building next**, what was reje
 - **Virginia's registered WZDx feed (SmarterRoads)** — token-gated, violates the keyless constraint.
   The VDOT 511 layer feeds (#7) cover the same ground keyless.
 - **OpenMHz for Boise** — no Idaho system exists (verified against all 446 systems). Re-check occasionally.
+- **Nixle/Everbridge public-safety alerts (Boise)** — the public RSS endpoints are dead
+  (301/404 on every historic URL pattern, probed 2026-07-04); Everbridge retired unauthenticated
+  feeds. Agency alerts now require an account or scraping social media. No keyless path.
 - **A third region** — the architecture supports it, but deepening the two real regions dominates
   speculative breadth on every impact axis. Nothing here blocks adding one later.
 - **Saved map views** — genuinely small, but below everything above on impact; localStorage presets

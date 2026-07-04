@@ -30,6 +30,7 @@ export type DataSource =
   | 'ada-crime'
   | 'itd-wzdx'
   | 'achd'
+  | 'itd-events'
   // Shared
   | 'usgs-quake'
   | 'nws-gauge'
