@@ -243,7 +243,7 @@ Deploy details:
 - Root layout (`src/routes/+layout.ts`): `prerender = true`, `ssr = false`.
 - Build-time env vars used by the workflow:
   - `BASE_PATH=/Situation-Monitor` — sets SvelteKit `paths.base` so asset URLs are correct under `/<repo>/`. Empty in dev.
-  - `PUBLIC_API_URL` — **currently hardcoded in deploy.yml to a Cloudflare quick-tunnel hostname that no longer resolves**, so the public site renders empty. Quick-tunnel URLs change on every cloudflared restart; the deployment needs a stable hostname (named tunnel / Tailscale Funnel) or should be dropped in favor of fully-local use.
+  - `PUBLIC_API_URL` — read from the `PUBLIC_API_URL` repo *variable* (Settings → Secrets and variables → Actions → Variables). Unset = empty = the deployed site renders with no live data. To make the public site work, stand up a stable backend hostname (named Cloudflare Tunnel or Tailscale Funnel — never a quick tunnel, those rotate on restart), set the variable, and re-run the deploy workflow. Backend side: run with `NODE_ENV=production` and `CORS_ORIGINS=https://<owner>.github.io`.
 - One-time setup: repo Settings → Pages → Source = "GitHub Actions".
 - Deployed URL: `https://<owner>.github.io/Situation-Monitor/`.
 
