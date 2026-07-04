@@ -173,8 +173,11 @@ export const filteredIncidents = derived(
         return false;
       }
 
-      // Check time range
-      if (!isWithinTimeRange(incident.timestamp, $filters.timeRange)) {
+      // Check time range. Ongoing situations (active wildfires, work
+      // zones) are exempt: their timestamp is when they STARTED, but they
+      // are still happening now — the default 24h window would hide a
+      // three-week-old fire that is actively burning.
+      if (incident.metadata?.ongoing !== true && !isWithinTimeRange(incident.timestamp, $filters.timeRange)) {
         return false;
       }
 

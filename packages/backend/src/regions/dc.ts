@@ -14,6 +14,7 @@ import { wmataFetcher } from '../fetchers/wmata.js';
 import { openMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
+import { WildfireFetcher } from '../fetchers/wildfire.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -78,7 +79,7 @@ export const dcRegion: RegionPack = {
 
   nwsZones: DC_NWS_ZONES,
 
-  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc'],
+  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs'],
 
   cameraFetchers: [
     mdchartCamerasFetcher,
@@ -103,6 +104,12 @@ export const dcRegion: RegionPack = {
 
   emergencyAlertFetchers: [
     alertDCFetcher,
+    // Rarely non-empty for DC (brush fires do happen) — presence-implies-
+    // active semantics keep the layer honestly empty otherwise.
+    new WildfireFetcher({
+      regionId: 'dc',
+      bounds: { lamin: 38.3, lamax: 39.5, lomin: -77.7, lomax: -76.3 },
+    }),
   ],
 
   pulsePointFetcher: dcPulsePoint,
