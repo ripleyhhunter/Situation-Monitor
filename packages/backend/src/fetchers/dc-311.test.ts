@@ -58,8 +58,24 @@ describe('normalizeDc311Row', () => {
     expect(normalizeDc311Row(old, NOW)).toBeNull();
   });
 
-  it('drops closed/resolved requests and rows without coordinates', () => {
-    expect(normalizeDc311Row(mkRow({ SERVICEORDERSTATUS: 'Closed' }), NOW)).toBeNull();
+  it('emits resolved requests as CLEARED with the resolution time (fixed signals leave the map)', () => {
+    const resolvedAt = NOW - 10 * 60 * 1000;
+    const incident = normalizeDc311Row(
+      mkRow({ SERVICEORDERSTATUS: 'Closed', RESOLUTIONDATE: resolvedAt }),
+      NOW
+    );
+    expect(incident).not.toBeNull();
+    expect(incident!.status).toBe('cleared');
+    expect(incident!.updatedAt).toBe(new Date(resolvedAt).toISOString());
+    expect(incident!.metadata.ongoing).toBeUndefined();
+  });
+
+  it('marks open requests as ongoing (exempt from the event-time filter)', () => {
+    expect(normalizeDc311Row(mkRow(), NOW)!.metadata.ongoing).toBe(true);
+  });
+
+  it('drops duplicates and rows without coordinates or times', () => {
+    expect(normalizeDc311Row(mkRow({ SERVICEORDERSTATUS: 'Open (Duplicate)' }), NOW)).toBeNull();
     expect(normalizeDc311Row(mkRow({ LATITUDE: null }), NOW)).toBeNull();
     expect(normalizeDc311Row(mkRow({ LATITUDE: 0, LONGITUDE: 0 }), NOW)).toBeNull();
     expect(normalizeDc311Row(mkRow({ ADDDATE: null }), NOW)).toBeNull();

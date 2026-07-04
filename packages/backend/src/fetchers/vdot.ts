@@ -68,7 +68,29 @@ export function parseVdotIdDate(id: string | undefined): string | null {
   const day = parseInt(dd, 10);
   const year = parseInt(yyyy, 10);
   if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000 || year > 2100) return null;
-  return new Date(Date.UTC(year, month - 1, day)).toISOString();
+  const date = new Date(Date.UTC(year, month - 1, day));
+  // Round-trip check rejects impossible dates Date would silently roll
+  // over (02/31 -> Mar 3).
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date.toISOString();
+}
+
+/**
+ * The feed carries no per-event timestamps, so updatedAt is the id-embedded
+ * event date plus a deterministic content fingerprint (a sub-day offset
+ * derived from the fields we render). Same content always maps to the same
+ * updatedAt — no churn — while an escalation (minor -> major layer),
+ * priority change, or message edit shifts it and re-broadcasts. Never
+ * wall-clock.
+ */
+export function vdotContentVersion(eventDateIso: string, kind: string, props: { priority?: string; message_511?: string | null; location?: string | null }): string {
+  const content = `${kind}|${props.priority ?? ''}|${props.message_511 ?? ''}|${props.location ?? ''}`;
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    hash = (hash * 31 + content.charCodeAt(i)) >>> 0;
+  }
+  // Offset within the event's day (0..86_399_000 ms) so age math stays sane.
+  return new Date(Date.parse(eventDateIso) + (hash % 86_400_000)).toISOString();
 }
 
 export function vdotSeverity(kind: string, priority: string | undefined): 1 | 2 | 3 | 4 | 5 {
@@ -116,7 +138,7 @@ export function normalizeVdotFeature(feature: VdotFeature, kind: string): Incide
       address: props.location || props.location_description || props.route || undefined,
     },
     timestamp: eventDate,
-    updatedAt: eventDate,
+    updatedAt: vdotContentVersion(eventDate, kind, props),
     source: 'vdot',
     title,
     description: parts.join('\n'),
@@ -154,9 +176,16 @@ export class VdotFetcher extends BaseFetcher<Incident> {
         // complete-listing, and a partial batch cross-clears the rest.
         throw new Error(`VDOT 511 (${LAYERS[i].kind}): unexpected response shape`);
       }
+      let dropped = 0;
       for (const feature of response.features) {
         const incident = normalizeVdotFeature(feature, LAYERS[i].kind);
         if (incident) incidents.push(incident);
+        else dropped++;
+      }
+      // Out-of-bbox drops are routine (statewide feed); a high ratio of
+      // in-bbox parse failures would mean format drift — surface counts.
+      if (dropped === response.features.length && response.features.length > 0) {
+        logger.warn(`VDOT 511 (${LAYERS[i].kind}): all ${dropped} features dropped — geometry/id format may have drifted`);
       }
     }
 

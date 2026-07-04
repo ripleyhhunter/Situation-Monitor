@@ -21,7 +21,9 @@ import logger from '../logger.js';
 const DC_311_URL =
   'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/ServiceRequests/FeatureServer/13/query';
 
-const FETCH_ROWS = 600; // comfortably covers >24h of citywide intake
+// Layer maxRecordCount; measured intake is ~600 rows/day (holiday) so the
+// full cap keeps the 24h window covered even on storm days.
+const FETCH_ROWS = 2000;
 const WINDOW_MS = 24 * 60 * 60 * 1000; // must match aggregator default expiry
 
 /** Substring rules mapping situational categories to type + severity. */
@@ -42,6 +44,8 @@ export interface Dc311Attributes {
   SERVICEORDERSTATUS?: string | null;
   /** Epoch ms. */
   ADDDATE?: number | null;
+  /** Epoch ms; set when the request is closed. */
+  RESOLUTIONDATE?: number | null;
   LATITUDE?: number | null;
   LONGITUDE?: number | null;
   WARD?: string | number | null;
@@ -71,9 +75,16 @@ export function normalizeDc311Row(a: Dc311Attributes, now = Date.now()): Inciden
   if (a.LATITUDE === 0 && a.LONGITUDE === 0) return null;
   // Client-side window — must stay inside this source's aggregator expiry.
   if (now - a.ADDDATE > WINDOW_MS) return null;
-  // Closed requests are resolved situations.
   const status = (a.SERVICEORDERSTATUS ?? '').toLowerCase();
-  if (status.startsWith('clos') || status.startsWith('resolv')) return null;
+  // Duplicate requests double-plot the same underlying event.
+  if (status.includes('duplicate')) return null;
+  // Resolved requests inside the window are emitted as CLEARED (with the
+  // resolution time as updatedAt) so a fixed signal leaves the map on the
+  // next poll instead of lingering active until the 24h sweep.
+  const resolved =
+    status.startsWith('clos') || status.startsWith('resolv')
+      ? (typeof a.RESOLUTIONDATE === 'number' ? a.RESOLUTIONDATE : a.ADDDATE)
+      : null;
 
   const added = new Date(a.ADDDATE).toISOString();
 
@@ -88,8 +99,9 @@ export function normalizeDc311Row(a: Dc311Attributes, now = Date.now()): Inciden
       address: a.STREETADDRESS || undefined,
     },
     timestamp: added,
-    updatedAt: added,
+    updatedAt: resolved !== null ? new Date(resolved).toISOString() : added,
     source: 'dc-311',
+    status: resolved !== null ? 'cleared' : 'active',
     title: a.SERVICECODEDESCRIPTION as string,
     description: [
       a.STREETADDRESS,
@@ -98,9 +110,11 @@ export function normalizeDc311Row(a: Dc311Attributes, now = Date.now()): Inciden
     ]
       .filter(Boolean)
       .join('\n'),
-    status: 'active',
     category: '311',
     metadata: {
+      // Open situational requests are happening now; honor shorter time
+      // windows for cleared ones.
+      ongoing: resolved === null ? true : undefined,
       requestId: a.SERVICEREQUESTID,
       ward: a.WARD,
       requestStatus: a.SERVICEORDERSTATUS,
@@ -118,7 +132,7 @@ export class Dc311Fetcher extends BaseFetcher<Incident> {
   protected async fetchFromApi(): Promise<Incident[]> {
     const params = new URLSearchParams({
       where: '1=1',
-      outFields: 'SERVICEREQUESTID,SERVICECODEDESCRIPTION,SERVICEORDERSTATUS,ADDDATE,LATITUDE,LONGITUDE,WARD,STREETADDRESS',
+      outFields: 'SERVICEREQUESTID,SERVICECODEDESCRIPTION,SERVICEORDERSTATUS,ADDDATE,RESOLUTIONDATE,LATITUDE,LONGITUDE,WARD,STREETADDRESS',
       orderByFields: 'ADDDATE DESC',
       resultRecordCount: String(FETCH_ROWS),
       f: 'json',

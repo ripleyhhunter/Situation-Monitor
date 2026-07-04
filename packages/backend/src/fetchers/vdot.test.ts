@@ -37,8 +37,25 @@ describe('normalizeVdotFeature', () => {
     expect(incident!.title).toBe('Vehicle Accident: I-95N');
     // Invariant: feed-derived timestamp (from the id), never wall-clock.
     expect(incident!.timestamp).toBe('2026-07-04T00:00:00.000Z');
-    expect(incident!.updatedAt).toBe('2026-07-04T00:00:00.000Z');
     expect(incident!.metadata.ongoing).toBe(true);
+  });
+
+  it('versions updatedAt by content so escalations re-broadcast without churn', () => {
+    const a = normalizeVdotFeature(FAIRFAX_CRASH, 'minor-incident')!;
+    const b = normalizeVdotFeature(FAIRFAX_CRASH, 'minor-incident')!;
+    // Deterministic: identical content -> identical updatedAt (no churn).
+    expect(a.updatedAt).toBe(b.updatedAt);
+    // Same-day anchored: within the event's day.
+    expect(a.updatedAt.slice(0, 10)).toBe('2026-07-04');
+    // Escalation to the major layer shifts it -> re-broadcast.
+    const major = normalizeVdotFeature(FAIRFAX_CRASH, 'major-incident')!;
+    expect(major.updatedAt).not.toBe(a.updatedAt);
+    // A message edit shifts it too.
+    const edited = normalizeVdotFeature(
+      { ...FAIRFAX_CRASH, properties: { ...FAIRFAX_CRASH.properties, message_511: 'All lanes reopened shortly.' } },
+      'minor-incident'
+    )!;
+    expect(edited.updatedAt).not.toBe(a.updatedAt);
   });
 
   it('filters events outside Northern Virginia (feeds are statewide)', () => {
