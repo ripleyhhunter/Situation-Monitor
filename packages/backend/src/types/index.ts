@@ -35,9 +35,7 @@ export type DataSource =
   | 'nws-gauge'       // NWS river gauges at/above action stage
   | 'nws'
   | 'airnow'
-  | 'openmhz'
   | 'pulsepoint'
-  | 'scanner'
   | 'wfigs';        // NIFC WFIGS current wildfire incidents
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
@@ -223,6 +221,25 @@ export interface NewsItem {
   };
 }
 
+// Scanner call (radio archive) types — audio metadata, not map incidents.
+export interface ScannerCall {
+  id: string;
+  regionId: RegionId;
+  systemId: string;
+  systemLabel: string;
+  talkgroup: number;
+  talkgroupName?: string;
+  talkgroupDescription?: string;
+  /** Call record time (ISO). */
+  time: string;
+  durationSec: number;
+  audioUrl: string;
+  frequencyMhz?: number;
+  emergency?: boolean;
+  /** Radio unit tags heard on the call. */
+  units?: string[];
+}
+
 // SSE Event types
 export type SSEEventType =
   | 'incident:new'
@@ -236,6 +253,7 @@ export type SSEEventType =
   | 'aqi:update'
   | 'aircraft:update'
   | 'news:update'
+  | 'scanner:update'
   | 'heartbeat'
   | 'connected';
 

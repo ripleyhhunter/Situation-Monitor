@@ -14,7 +14,7 @@ import { WzdxFetcher } from '../fetchers/wzdx.js';
 import { vdotFetcher } from '../fetchers/vdot.js';
 import { dc311Fetcher } from '../fetchers/dc-311.js';
 import { wmataFetcher } from '../fetchers/wmata.js';
-import { openMHzFetcher } from '../fetchers/openmhz.js';
+import { OpenMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
@@ -146,7 +146,9 @@ export const dcRegion: RegionPack = {
 
   pulsePointFetcher: dcPulsePoint,
   transitFetcher: wmataFetcher,
-  scannerFetcher: openMHzFetcher,
+  // DC Fire & EMS on OpenMHz — near-real-time call audio (newest calls
+  // typically <60s old). Feeds the scanner panel, not the map.
+  scannerFetcher: new OpenMHzFetcher({ regionId: 'dc', systemId: 'dcfd', systemLabel: 'DC Fire & EMS' }),
   twitterFetcher: dcFireEMSTwitterFetcher,
 
   weatherAlertFetcher: new NWSWeatherFetcher({

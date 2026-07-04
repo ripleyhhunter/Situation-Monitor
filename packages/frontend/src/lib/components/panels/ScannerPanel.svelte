@@ -1,9 +1,16 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { selectedRegion } from '$stores/region';
+  import { scannerCalls } from '$stores/scanner';
+  import { formatRelativeTime } from '$utils/time';
   import { REGION_PRESETS } from '$lib/config';
 
   const dispatch = createEventDispatcher();
+
+  // How many archived calls to list — a full batch is 50, which would
+  // dominate the panel.
+  const MAX_CALLS_SHOWN = 20;
+  $: liveCalls = $scannerCalls.slice(0, MAX_CALLS_SHOWN);
 
   interface ScannerFeed {
     id: string;
@@ -100,6 +107,37 @@
       {/if}
     </p>
   </div>
+
+  <!-- Live call audio (OpenMHz) — present when the region has a wired system -->
+  {#if liveCalls.length > 0}
+    <div class="border-b border-gray-200 dark:border-gray-700 flex-shrink-0 max-h-56 overflow-y-auto">
+      <div class="px-3 pt-2 pb-1 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800">
+        <h4 class="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wide">
+          Recent Calls — {liveCalls[0].systemLabel}
+        </h4>
+        <span class="text-[10px] text-gray-400">{formatRelativeTime(liveCalls[0].time)}</span>
+      </div>
+      <ul class="px-2 pb-2 space-y-1">
+        {#each liveCalls as call (call.id)}
+          <li class="rounded-lg border border-gray-100 dark:border-gray-700/60 px-2 py-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
+                  {#if call.emergency}<span class="text-red-500 font-bold">⚠ </span>{/if}
+                  {call.talkgroupDescription || call.talkgroupName || `Talkgroup ${call.talkgroup}`}
+                </p>
+                <p class="text-[10px] text-gray-500 dark:text-gray-400">
+                  {formatRelativeTime(call.time)} • {call.durationSec}s{call.units && call.units.length ? ` • ${call.units.slice(0, 3).join(', ')}` : ''}
+                </p>
+              </div>
+            </div>
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <audio controls preload="none" src={call.audioUrl} class="w-full h-8 mt-1"></audio>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
   <!-- Scanner feeds list -->
   <div class="p-2 space-y-2 overflow-y-auto flex-1">
