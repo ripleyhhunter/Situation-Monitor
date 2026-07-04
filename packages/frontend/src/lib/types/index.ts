@@ -223,6 +223,7 @@ export interface FilterState {
   showLocationOnlyCameras: boolean;
   showWeather: boolean;
   showCrimeHeatmap: boolean;
+  showRadar: boolean;
   showAircraft: boolean;
   hideGroundAircraft: boolean;
   timeRange: 'all' | '1h' | '6h' | '24h';
