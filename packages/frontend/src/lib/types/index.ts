@@ -65,7 +65,14 @@ export interface Incident {
 }
 
 // Camera types
-export type CameraSource = 'mdchart' | 'dc' | 'vdot' | 'landmark' | 'idaho511';
+export type CameraSource =
+  | 'mdchart'
+  | 'dc'
+  | 'vdot'
+  | 'arlington'
+  | 'pgc'
+  | 'landmark'
+  | 'idaho511';
 
 export interface Camera {
   id: string;

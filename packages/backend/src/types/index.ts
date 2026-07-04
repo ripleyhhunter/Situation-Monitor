@@ -65,7 +65,14 @@ export interface Incident {
 }
 
 // Camera types
-export type CameraSource = 'mdchart' | 'dc' | 'vdot' | 'landmark' | 'idaho511';
+export type CameraSource =
+  | 'mdchart'
+  | 'dc'
+  | 'vdot'       // VDOT 511 Virginia (NoVA stills + HLS)
+  | 'arlington'  // Arlington County ITS (HLS)
+  | 'pgc'        // Prince George's County TRIP (HLS)
+  | 'landmark'
+  | 'idaho511';
 
 export interface Camera {
   id: string;

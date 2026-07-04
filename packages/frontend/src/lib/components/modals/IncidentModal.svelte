@@ -63,6 +63,8 @@
       mdchart: 'MD Traffic',
       dc: 'DC DOT',
       vdot: 'VA Traffic',
+      arlington: 'Arlington ITS',
+      pgc: 'PG County',
       landmark: 'Webcam',
       idaho511: 'Idaho 511',
     };
