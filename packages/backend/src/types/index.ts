@@ -31,7 +31,8 @@ export type DataSource =
   | 'airnow'
   | 'openmhz'
   | 'pulsepoint'
-  | 'scanner';
+  | 'scanner'
+  | 'wfigs';        // NIFC WFIGS current wildfire incidents
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 

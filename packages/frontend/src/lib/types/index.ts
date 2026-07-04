@@ -31,7 +31,8 @@ export type DataSource =
   | 'airnow'
   | 'openmhz'
   | 'pulsepoint'
-  | 'scanner';
+  | 'scanner'
+  | 'wfigs';
 
 export type IncidentStatus = 'active' | 'cleared' | 'unknown';
 
