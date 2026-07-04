@@ -7,16 +7,25 @@
   } from '$services/notifications';
   import { userLocation, requestUserLocation } from '$stores/location';
 
-  async function handleEnableToggle() {
-    if ($notificationSettings.enabled) {
+  async function handleEnableToggle(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    // Branch on the EFFECTIVE state (what the checkbox displays), not the
+    // stored flag alone — they diverge when permission was revoked after
+    // enabling (stored true, permission not granted).
+    const effectivelyOn = $notificationSettings.enabled && $notificationPermission === 'granted';
+    if (effectivelyOn) {
       updateNotificationSettings({ enabled: false });
       return;
     }
-    // Turning on: make sure the browser permission exists first.
     if ($notificationPermission === 'granted') {
       updateNotificationSettings({ enabled: true });
-    } else {
-      await requestNotificationPermission();
+      return;
+    }
+    const granted = await requestNotificationPermission();
+    if (!granted) {
+      // Dismissed or denied: a same-value store set doesn't re-render the
+      // one-way-bound checkbox, so force the DOM back to unchecked.
+      input.checked = false;
     }
   }
 

@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store';
 import type { Incident, WeatherAlert, RegionId } from '$types';
 import { haversineDistance } from '$utils/geo';
 import { selectedRegionId } from '$stores/region';
-import { userLocation, setMapCenter, setMapZoom } from '$stores/location';
+import { userLocation } from '$stores/location';
 import { selectIncident } from '$stores/incidents';
 
 export type NotificationPermission = 'default' | 'granted' | 'denied';
@@ -48,7 +48,9 @@ function readSettings(): NotificationSettings {
       criticalOnly: typeof parsed.criticalOnly === 'boolean' ? parsed.criticalOnly : DEFAULT_SETTINGS.criticalOnly,
       nearbyOnly: typeof parsed.nearbyOnly === 'boolean' ? parsed.nearbyOnly : DEFAULT_SETTINGS.nearbyOnly,
       nearbyRadiusKm:
-        typeof parsed.nearbyRadiusKm === 'number' && parsed.nearbyRadiusKm >= 1 && parsed.nearbyRadiusKm <= 50
+        // Keep in the slider's 1-25 range so the label never shows a value
+        // the control can't represent.
+        typeof parsed.nearbyRadiusKm === 'number' && parsed.nearbyRadiusKm >= 1 && parsed.nearbyRadiusKm <= 25
           ? parsed.nearbyRadiusKm
           : DEFAULT_SETTINGS.nearbyRadiusKm,
       weatherAlerts: typeof parsed.weatherAlerts === 'boolean' ? parsed.weatherAlerts : DEFAULT_SETTINGS.weatherAlerts,
@@ -210,8 +212,7 @@ export function notifyIncident(incident: Incident): void {
     });
     notification.onclick = () => {
       window.focus();
-      setMapCenter(incident.location.lat, incident.location.lng);
-      setMapZoom(15);
+      // MapContainer reacts to selectedIncident by centering at zoom 17.
       selectIncident(incident);
       notification.close();
     };
@@ -269,6 +270,12 @@ function playAlertSound(): void {
         : (window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
     if (!Ctor) return;
     const ctx = new Ctor();
+    // Autoplay policy: a context created outside a user gesture starts
+    // suspended. resume() succeeds once the page has ever been interacted
+    // with; otherwise the chirp silently no-ops (nothing else to do).
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
     const gain = ctx.createGain();
     gain.gain.value = 0.08;
     gain.connect(ctx.destination);
@@ -291,7 +298,14 @@ function playAlertSound(): void {
   }
 }
 
-// Initialize permission status on load
+// Initialize permission status on load, and re-check when the user returns
+// to the tab — permission can be revoked in browser settings mid-session,
+// and nothing else would resync the store.
 if (typeof window !== 'undefined') {
   checkNotificationPermission();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkNotificationPermission();
+    }
+  });
 }

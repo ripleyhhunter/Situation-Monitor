@@ -133,6 +133,10 @@ class SSEService {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
       if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
+      // Escalations: an incident that first arrived below the critical
+      // threshold only crosses it via update. Dedupe + freshness gates
+      // make re-evaluating every update safe.
+      if (!this.reconcilePending) notifyIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
 

@@ -98,6 +98,13 @@ router.get('/', (req, res) => {
     })}\n\n`);
   }
 
+  // Close the snapshot with an immediate per-client heartbeat. The client
+  // treats everything between 'connected' and the first heartbeat as replay
+  // (no notifications, ghost-pruning deferred) — without this it would wait
+  // up to 30s for the global heartbeat, swallowing genuinely-new events.
+  res.write(`event: heartbeat\n`);
+  res.write(`data: ${JSON.stringify({ type: 'heartbeat', data: { timestamp: new Date().toISOString() }, timestamp: new Date().toISOString() })}\n\n`);
+
   logger.info('Initial data sent to SSE client', {
     clientId,
     incidents: data.incidents.length,
