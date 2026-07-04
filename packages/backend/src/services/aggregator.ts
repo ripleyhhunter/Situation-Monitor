@@ -478,6 +478,7 @@ class AggregatorService {
 
     const state = this.getState(region.id);
     const processedIds = new Set<string>();
+    const historyBatch: Incident[] = [];
     let hasChanges = false;
 
     for (const incident of newIncidents) {
@@ -489,17 +490,21 @@ class AggregatorService {
       if (!existing) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
-        history.upsertIncident(incident);
+        historyBatch.push(incident);
         sse.broadcast('incident:new', incident);
         hasChanges = true;
       } else if (existing.updatedAt !== incident.updatedAt) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
-        history.upsertIncident(incident);
+        historyBatch.push(incident);
         sse.broadcast('incident:update', incident);
         hasChanges = true;
       }
     }
+
+    // One transaction per poll batch — per-row autocommit stalls the event
+    // loop ~0.5s on a 2000-row first crime fetch.
+    history.upsertMany(historyBatch);
 
     // Cross-clear: only for sources whose feed is a complete snapshot.
     const sourcePrefix = source ?? newIncidents[0]?.source;

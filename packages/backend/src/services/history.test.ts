@@ -79,4 +79,30 @@ describe('history service', () => {
     const restored = history.getRecentActive('boise', '2026-07-01T00:00:00.000Z');
     expect(restored).toHaveLength(0);
   });
+
+  it('reactivation resets cleared_at so the next clear is not a silent no-op', () => {
+    // active -> cleared -> reappears in feed (active) -> cleared again.
+    // Without the cleared_at reset on reactivation, the final clear no-ops
+    // and the row restores as falsely active (e.g. a gauge oscillating
+    // around flood stage).
+    history.upsertIncident(mkIncident());
+    history.markCleared('h-1', '2026-07-04T11:00:00.000Z');
+    history.upsertIncident(mkIncident({ updatedAt: '2026-07-04T11:30:00.000Z' }));
+
+    // Reactivated: restorable again.
+    expect(history.getRecentActive('boise', '2026-07-01T00:00:00.000Z')).toHaveLength(1);
+
+    history.markCleared('h-1', '2026-07-04T12:00:00.000Z');
+    expect(history.getRecentActive('boise', '2026-07-01T00:00:00.000Z')).toHaveLength(0);
+  });
+
+  it('batch upsert stores whole poll batches, description included', () => {
+    history.upsertMany([
+      mkIncident({ id: 'b-1', description: 'Two-vehicle crash' }),
+      mkIncident({ id: 'b-2' }),
+    ]);
+    expect(history.count()).toBe(2);
+    const restored = history.getRecentActive('boise', '2026-07-01T00:00:00.000Z');
+    expect(restored.find((i) => i.id === 'b-1')!.description).toBe('Two-vehicle crash');
+  });
 });

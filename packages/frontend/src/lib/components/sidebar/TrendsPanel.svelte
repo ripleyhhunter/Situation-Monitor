@@ -14,7 +14,12 @@
 
   const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
+  // Guards a fast region switch: an older in-flight response must not
+  // clobber the newer region's data.
+  let loadSeq = 0;
+
   async function load(regionId: string) {
+    const seq = ++loadSeq;
     loading = true;
     error = false;
     try {
@@ -25,13 +30,14 @@
       if (!hourlyRes.ok || !dailyRes.ok) throw new Error('history fetch failed');
       const hourlyJson = await hourlyRes.json();
       const dailyJson = await dailyRes.json();
+      if (seq !== loadSeq) return; // superseded by a newer region switch
       enabled = hourlyJson.enabled !== false;
       hourly = hourlyJson.rows ?? [];
       daily = dailyJson.rows ?? [];
     } catch {
-      error = true;
+      if (seq === loadSeq) error = true;
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 
