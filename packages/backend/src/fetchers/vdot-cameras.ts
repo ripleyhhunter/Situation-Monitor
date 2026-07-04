@@ -11,7 +11,7 @@ import logger from '../logger.js';
  *     (Iteris SPA; same posture as the existing VDOT incident feeds).
  *     One GET returns all ~1,674 statewide cameras as GeoJSON-style
  *     features; ~460 are active inside this bbox.
- *   - Stills: each roster row's image_url points at a /thumbs/…​.flv.png
+ *   - Stills: each roster row's image_url points at a /thumbs/….flv.png
  *     path that 301s — stripping "/thumbs/" and ".flv" yields the direct
  *     snapshot (https://snapshot.vdotcameras.com/<id>.png), refreshed
  *     every ~40-60s. Browsers load it in <img>, so CORS is irrelevant.
