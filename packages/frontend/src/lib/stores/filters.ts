@@ -11,6 +11,7 @@ const defaultFilters: FilterState = {
   showLocationOnlyCameras: false, // Hide DC cameras (no image/stream) by default
   showWeather: true,
   showCrimeHeatmap: false, // Toggle between markers and heatmap for crime data
+  showRadar: false, // Precipitation radar overlay off by default
   showAircraft: false, // Aircraft OFF by default to save API quota
   hideGroundAircraft: true, // Hide aircraft on the ground by default
   timeRange: '24h',
@@ -92,6 +93,11 @@ export function toggleWeather(): void {
 // Toggle crime heatmap
 export function toggleCrimeHeatmap(): void {
   filters.update((f) => ({ ...f, showCrimeHeatmap: !f.showCrimeHeatmap }));
+}
+
+// Toggle precipitation radar overlay
+export function toggleRadar(): void {
+  filters.update((f) => ({ ...f, showRadar: !f.showRadar }));
 }
 
 // Toggle aircraft visibility

@@ -11,6 +11,7 @@
   import { selectedRegion } from '$stores/region';
   import { getSeverityColor, getIncidentTypeColor } from '$utils/format';
   import { getAgeBasedOpacity, isFreshIncident } from '$utils/time';
+  import { fetchRadarFrame } from '$services/radar';
   import type { Incident, Camera, WeatherAlert, Aircraft } from '$types';
   import type * as Leaflet from 'leaflet';
 
@@ -42,6 +43,57 @@
   let weatherLayers: Leaflet.LayerGroup | null = null;
   let heatmapLayer: Leaflet.Layer | null = null;
   let heatLayerLoaded = false;
+
+  // Precipitation radar overlay. RainViewer frame paths expire out of a 2h
+  // window, so the layer URL is rebuilt from a fresh index every 5 minutes.
+  const RADAR_REFRESH_MS = 5 * 60 * 1000;
+  let radarLayer: Leaflet.TileLayer | null = null;
+  let radarRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let radarTemplate = '';
+  let radarAddInFlight = false;
+
+  async function addRadarLayer(): Promise<void> {
+    if (!map || !L || radarLayer || radarAddInFlight) return;
+    radarAddInFlight = true;
+    try {
+      const frame = await fetchRadarFrame();
+      // The toggle may have flipped off while the index was in flight.
+      if (!map || !L || radarLayer || !$filters.showRadar) return;
+      radarTemplate = frame.tileTemplate;
+      radarLayer = L.tileLayer(frame.tileTemplate, {
+        opacity: 0.6,
+        // RainViewer tiles top out at native zoom 7 — Leaflet upscales beyond.
+        maxNativeZoom: 7,
+        maxZoom: 19,
+        attribution: frame.attribution,
+      }).addTo(map);
+      radarRefreshTimer = setInterval(() => void refreshRadarFrame(), RADAR_REFRESH_MS);
+    } finally {
+      radarAddInFlight = false;
+    }
+  }
+
+  async function refreshRadarFrame(): Promise<void> {
+    if (!radarLayer) return;
+    const frame = await fetchRadarFrame();
+    if (!radarLayer) return; // toggled off while fetching
+    if (frame.tileTemplate !== radarTemplate) {
+      radarTemplate = frame.tileTemplate;
+      radarLayer.setUrl(frame.tileTemplate);
+    }
+  }
+
+  function removeRadarLayer(): void {
+    if (radarRefreshTimer) {
+      clearInterval(radarRefreshTimer);
+      radarRefreshTimer = null;
+    }
+    if (radarLayer && map) {
+      map.removeLayer(radarLayer);
+    }
+    radarLayer = null;
+    radarTemplate = '';
+  }
 
   onMount(async () => {
     if (!browser) return;
@@ -196,11 +248,21 @@
   });
 
   onDestroy(() => {
+    removeRadarLayer();
     if (map) {
       map.remove();
       map = null;
     }
   });
+
+  // Precipitation radar overlay follows its toggle.
+  $: if (map && L) {
+    if ($filters.showRadar && !radarLayer) {
+      void addRadarLayer();
+    } else if (!$filters.showRadar && radarLayer) {
+      removeRadarLayer();
+    }
+  }
 
   // Update incident markers when filtered incidents change
   // When heatmap is enabled, exclude crime/gunshot from markers (shown as heatmap instead)

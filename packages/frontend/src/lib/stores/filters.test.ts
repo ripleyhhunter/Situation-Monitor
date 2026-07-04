@@ -32,6 +32,7 @@ function freshFilters(): FilterState {
     showLocationOnlyCameras: false,
     showWeather: true,
     showCrimeHeatmap: false,
+    showRadar: false,
     showAircraft: false,
     hideGroundAircraft: true,
     timeRange: '24h',

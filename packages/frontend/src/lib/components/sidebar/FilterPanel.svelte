@@ -8,6 +8,7 @@
     toggleLocationOnlyCameras,
     toggleWeather,
     toggleCrimeHeatmap,
+    toggleRadar,
     toggleAircraft,
     toggleGroundAircraft,
     setTimeRange,
@@ -198,6 +199,18 @@
           <path d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
         </svg>
         <span class="text-sm text-gray-700 dark:text-gray-300">Crime Heatmap</span>
+      </label>
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={$filters.showRadar}
+          onchange={toggleRadar}
+          class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+        />
+        <svg class="w-5 h-5 text-cyan-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 4a8 8 0 018 8h-2a6 6 0 00-6-6V4zm0 4a4 4 0 014 4h-2a2 2 0 00-2-2V8zm0 3a1 1 0 011 1 1 1 0 01-1 1 1 1 0 01-1-1 1 1 0 011-1zM4.93 5.34l1.41 1.41A8 8 0 004 12H2a10 10 0 012.93-6.66zM12 20a8 8 0 007.07-4.24l1.76.94A10 10 0 0112 22a10 10 0 01-8.83-5.3l1.76-.94A8 8 0 0012 20z"/>
+        </svg>
+        <span class="text-sm text-gray-700 dark:text-gray-300">Precipitation Radar</span>
       </label>
       <label class="flex items-center gap-3 cursor-pointer">
         <input
