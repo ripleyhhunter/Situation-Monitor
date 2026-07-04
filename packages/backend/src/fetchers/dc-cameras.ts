@@ -3,6 +3,12 @@ import type { Camera } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
+// Stable per-process roster stamp. Cameras are a quasi-static roster with
+// no per-item feed timestamp; stamping `now` on every poll made the
+// aggregator rebroadcast the whole roster to every client each cycle
+// (hundreds of SSE events and full marker rebuilds every 5 minutes).
+const ROSTER_STAMP = new Date().toISOString();
+
 interface DCCameraFeature {
   type: 'Feature';
   properties: {
@@ -74,7 +80,7 @@ export class DCCamerasFetcher extends BaseFetcher<Camera> {
       streamUrl: 'https://www.weatherbug.com/traffic-cam/washington-dc-20001',
       // No direct image URL available for DC cameras
       imageUrl: undefined,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: ROSTER_STAMP,
     };
   }
 }

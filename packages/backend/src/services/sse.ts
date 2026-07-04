@@ -1,6 +1,15 @@
 import type { Response } from 'express';
-import type { SSEEvent, SSEEventType, RegionId } from '../types/index.js';
+import type { Camera, Incident, SSEEvent, SSEEventType, RegionId } from '../types/index.js';
 import logger from '../logger.js';
+
+/** Items per batched SSE event — keeps individual frames a modest size. */
+const BATCH_CHUNK = 500;
+
+function* chunks<T>(items: T[], size: number): Generator<T[]> {
+  for (let i = 0; i < items.length; i += size) {
+    yield items.slice(i, i + size);
+  }
+}
 
 // Client preferences for conditional fetching
 interface ClientPreferences {
@@ -13,6 +22,8 @@ interface SSEClient {
   res: Response;
   connectedAt: Date;
   preferences: ClientPreferences;
+  /** Client understands the batched event variants (connected with ?batch=1). */
+  supportsBatch: boolean;
 }
 
 class SSEService {
@@ -30,7 +41,7 @@ class SSEService {
     }, 30000);
   }
 
-  addClient(res: Response): string {
+  addClient(res: Response, options: { supportsBatch?: boolean } = {}): string {
     const clientId = `client-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     // Set SSE headers
@@ -55,6 +66,7 @@ class SSEService {
       preferences: {
         aircraftRegion: null, // Default to none to save API quota
       },
+      supportsBatch: options.supportsBatch ?? false,
     });
 
     logger.info('SSE client connected', { clientId, totalClients: this.clients.size });
@@ -103,6 +115,69 @@ class SSEService {
     });
 
     // Clean up dead clients
+    deadClients.forEach((id) => this.removeClient(id));
+  }
+
+  /**
+   * Broadcast a poll's worth of incident changes in one pass.
+   * Batch-capable clients get a few array events; legacy clients (older
+   * deployed frontends) get the exact per-item events they understand.
+   */
+  broadcastIncidentChanges(
+    regionId: RegionId,
+    added: Incident[],
+    updated: Incident[],
+    clearedIds: string[],
+  ): void {
+    if (added.length === 0 && updated.length === 0 && clearedIds.length === 0) return;
+
+    const changed = added.concat(updated);
+    const deadClients: string[] = [];
+
+    this.clients.forEach((client, clientId) => {
+      try {
+        if (client.supportsBatch) {
+          for (const chunk of chunks(changed, BATCH_CHUNK)) {
+            this.sendToClient(client.res, 'incident:batch', { incidents: chunk });
+          }
+          for (const chunk of chunks(clearedIds, BATCH_CHUNK)) {
+            this.sendToClient(client.res, 'incident:clear-batch', { ids: chunk });
+          }
+        } else {
+          for (const incident of added) this.sendToClient(client.res, 'incident:new', incident);
+          for (const incident of updated) this.sendToClient(client.res, 'incident:update', incident);
+          for (const id of clearedIds) this.sendToClient(client.res, 'incident:clear', { id, regionId });
+        }
+      } catch (error) {
+        logger.error('Error broadcasting incident changes', { clientId, error });
+        deadClients.push(clientId);
+      }
+    });
+
+    deadClients.forEach((id) => this.removeClient(id));
+  }
+
+  /** Same pattern for camera changes. */
+  broadcastCameraChanges(cameras: Camera[]): void {
+    if (cameras.length === 0) return;
+
+    const deadClients: string[] = [];
+
+    this.clients.forEach((client, clientId) => {
+      try {
+        if (client.supportsBatch) {
+          for (const chunk of chunks(cameras, BATCH_CHUNK)) {
+            this.sendToClient(client.res, 'camera:batch', { cameras: chunk });
+          }
+        } else {
+          for (const camera of cameras) this.sendToClient(client.res, 'camera:update', camera);
+        }
+      } catch (error) {
+        logger.error('Error broadcasting camera changes', { clientId, error });
+        deadClients.push(clientId);
+      }
+    });
+
     deadClients.forEach((id) => this.removeClient(id));
   }
 

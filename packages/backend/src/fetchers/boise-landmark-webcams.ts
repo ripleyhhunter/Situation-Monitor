@@ -3,6 +3,12 @@ import type { Camera } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
+// Stable per-process roster stamp. Cameras are a quasi-static roster with
+// no per-item feed timestamp; stamping `now` on every poll made the
+// aggregator rebroadcast the whole roster to every client each cycle
+// (hundreds of SSE events and full marker rebuilds every 5 minutes).
+const ROSTER_STAMP = new Date().toISOString();
+
 /**
  * Curated webcam list for the Boise / Treasure Valley region.
  *
@@ -171,7 +177,7 @@ export class BoiseLandmarkWebcamsFetcher extends BaseFetcher<Camera> {
       source: 'landmark' as const,
       streamUrl: webcam.pageUrl,
       imageUrl: webcam.imageUrl,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: ROSTER_STAMP,
     }));
 
     const byType = LANDMARK_WEBCAMS.reduce<Record<string, number>>((acc, w) => {

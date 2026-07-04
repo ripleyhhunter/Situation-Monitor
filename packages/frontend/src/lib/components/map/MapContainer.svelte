@@ -37,6 +37,10 @@
   let L: typeof import('leaflet') | null = null;
   let incidentMarkers: Leaflet.MarkerClusterGroup | null = null;
   let cameraMarkers: Leaflet.LayerGroup | null = null;
+  // Keyed camera markers: updates diff against this instead of rebuilding
+  // the whole layer (999 cameras rebuilt per camera event froze the UI).
+  const cameraMarkerById = new Map<string, Leaflet.Marker>();
+  const cameraStateById = new Map<string, string>();
   let aircraftMarkers: Leaflet.LayerGroup | null = null;
   let userMarker: Leaflet.Marker | null = null;
   let searchMarker: Leaflet.Marker | null = null;
@@ -184,7 +188,26 @@
         console.error('MapContainer: MarkerClusterGroup not available');
       }
 
-      cameraMarkers = L.layerGroup().addTo(map);
+      // Cameras get their own cluster group: several hundred always-on DOM
+      // markers (765 in DC) made panning heavy at low zoom.
+      if (MarkerClusterGroup) {
+        cameraMarkers = new MarkerClusterGroup({
+          maxClusterRadius: 40,
+          disableClusteringAtZoom: 15,
+          spiderfyOnMaxZoom: false,
+          showCoverageOnHover: false,
+          zoomToBoundsOnClick: true,
+          iconCreateFunction: (cluster: any) =>
+            L!.divIcon({
+              html: `<div style="background:rgba(99,102,241,.85);color:#fff;border-radius:9999px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:2px solid rgba(255,255,255,.8)">${cluster.getChildCount()}</div>`,
+              className: '',
+              iconSize: L!.point(34, 34),
+            }),
+        }) as Leaflet.MarkerClusterGroup;
+        map.addLayer(cameraMarkers);
+      } else {
+        cameraMarkers = L.layerGroup().addTo(map);
+      }
       weatherLayers = L.layerGroup().addTo(map);
       aircraftMarkers = L.layerGroup().addTo(map);
       console.log('MapContainer: Camera, weather, and aircraft layers added');
@@ -301,6 +324,8 @@
     updateCameraMarkers($filteredCameraList);
   } else if (cameraMarkers && !$filters.showCameras) {
     cameraMarkers.clearLayers();
+    cameraMarkerById.clear();
+    cameraStateById.clear();
   }
 
   // Update user location marker
@@ -525,37 +550,73 @@
     if (toAdd.length > 0) incidentMarkers.addLayers(toAdd);
   }
 
+  function buildCameraMarker(camera: Camera): Leaflet.Marker {
+    // Different styles for landmark vs traffic cameras
+    const isLandmark = camera.source === 'landmark';
+    const isDC = camera.source === 'dc';
+
+    const markerClass = isLandmark ? 'landmark-marker' : isDC ? 'dc-camera-marker' : 'camera-marker';
+    const svgIcon = isLandmark
+      ? '<path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><circle cx="12" cy="11" r="3"/>' // Map pin
+      : '<path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>'; // Camera
+
+    const icon = L!.divIcon({
+      className: '',
+      html: `
+        <div class="${markerClass}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="white">
+            ${svgIcon}
+          </svg>
+        </div>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
+
+    const marker = L!.marker([camera.location.lat, camera.location.lng], { icon });
+    marker.on('click', () => selectCamera(camera));
+    return marker;
+  }
+
   function updateCameraMarkers(cameras: Camera[]) {
     if (!cameraMarkers || !L) return;
 
-    cameraMarkers.clearLayers();
+    // Diff by id — only changed/new/removed cameras touch the layer.
+    const seen = new Set<string>();
+    const toAdd: Leaflet.Marker[] = [];
+    const toRemove: Leaflet.Marker[] = [];
 
     for (const camera of cameras) {
-      // Different styles for landmark vs traffic cameras
-      const isLandmark = camera.source === 'landmark';
-      const isDC = camera.source === 'dc';
+      seen.add(camera.id);
+      const stateKey = `${camera.location.lat},${camera.location.lng},${camera.lastUpdated}`;
+      const existing = cameraMarkerById.get(camera.id);
+      if (existing && cameraStateById.get(camera.id) === stateKey) continue;
+      if (existing) {
+        toRemove.push(existing);
+      }
+      const marker = buildCameraMarker(camera);
+      cameraMarkerById.set(camera.id, marker);
+      cameraStateById.set(camera.id, stateKey);
+      toAdd.push(marker);
+    }
 
-      const markerClass = isLandmark ? 'landmark-marker' : isDC ? 'dc-camera-marker' : 'camera-marker';
-      const svgIcon = isLandmark
-        ? '<path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><circle cx="12" cy="11" r="3"/>' // Map pin
-        : '<path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>'; // Camera
+    for (const [id, marker] of cameraMarkerById) {
+      if (!seen.has(id)) {
+        toRemove.push(marker);
+        cameraMarkerById.delete(id);
+        cameraStateById.delete(id);
+      }
+    }
 
-      const icon = L.divIcon({
-        className: '',
-        html: `
-          <div class="${markerClass}">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="white">
-              ${svgIcon}
-            </svg>
-          </div>
-        `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
-
-      const marker = L.marker([camera.location.lat, camera.location.lng], { icon });
-      marker.on('click', () => selectCamera(camera));
-      cameraMarkers.addLayer(marker);
+    if (toRemove.length > 0 || toAdd.length > 0) {
+      const cluster = cameraMarkers as Leaflet.MarkerClusterGroup;
+      if (typeof cluster.removeLayers === 'function') {
+        if (toRemove.length > 0) cluster.removeLayers(toRemove);
+        if (toAdd.length > 0) cluster.addLayers(toAdd);
+      } else {
+        for (const marker of toRemove) cameraMarkers.removeLayer(marker);
+        for (const marker of toAdd) cameraMarkers.addLayer(marker);
+      }
     }
   }
 

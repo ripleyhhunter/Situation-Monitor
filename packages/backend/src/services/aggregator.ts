@@ -328,14 +328,16 @@ class AggregatorService {
     }
 
     const state = this.getState(region.id);
+    const changed: Camera[] = [];
     for (const camera of allCameras) {
       const existing = state.cameras.get(camera.id);
       if (!existing || existing.lastUpdated !== camera.lastUpdated) {
         state.cameras.set(camera.id, camera);
         database.upsertCamera(camera);
-        sse.broadcast('camera:update', camera);
+        changed.push(camera);
       }
     }
+    sse.broadcastCameraChanges(changed);
   }
 
   private async fetchTrafficIncidents(region: RegionPack): Promise<void> {
@@ -494,6 +496,9 @@ class AggregatorService {
     const state = this.getState(region.id);
     const processedIds = new Set<string>();
     const historyBatch: Incident[] = [];
+    const added: Incident[] = [];
+    const updated: Incident[] = [];
+    const clearedIds: string[] = [];
     let hasChanges = false;
 
     for (const incident of newIncidents) {
@@ -506,13 +511,13 @@ class AggregatorService {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         historyBatch.push(incident);
-        sse.broadcast('incident:new', incident);
+        added.push(incident);
         hasChanges = true;
       } else if (existing.updatedAt !== incident.updatedAt) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         historyBatch.push(incident);
-        sse.broadcast('incident:update', incident);
+        updated.push(incident);
         hasChanges = true;
       }
     }
@@ -531,12 +536,16 @@ class AggregatorService {
             incident.updatedAt = new Date().toISOString();
             database.updateIncidentStatus(id, 'cleared');
             history.markCleared(id, incident.updatedAt);
-            sse.broadcast('incident:clear', { id, regionId: region.id });
+            clearedIds.push(id);
             hasChanges = true;
           }
         }
       }
     }
+
+    // One SSE pass per poll batch (arrays for current clients, per-item for
+    // older deployed frontends) instead of one broadcast per incident.
+    sse.broadcastIncidentChanges(region.id, added, updated, clearedIds);
 
     if (hasChanges) {
       this.persistIncidents(region.id).catch(() => {});
@@ -577,6 +586,7 @@ class AggregatorService {
       const completeListing = new Set(
         allRegions.find(r => r.id === regionId)?.sourcesWithCompleteListing ?? [],
       );
+      const sweptIds: string[] = [];
 
       for (const [id, incident] of state.incidents) {
         if (incident.status !== 'active') {
@@ -600,11 +610,13 @@ class AggregatorService {
           incident.updatedAt = new Date().toISOString();
           database.updateIncidentStatus(id, 'cleared');
           history.markCleared(id, incident.updatedAt);
-          sse.broadcast('incident:clear', { id, regionId });
+          sweptIds.push(id);
           clearedCount++;
           changedRegions.add(regionId);
         }
       }
+
+      sse.broadcastIncidentChanges(regionId, [], [], sweptIds);
     }
 
     if (changedRegions.size > 0) {

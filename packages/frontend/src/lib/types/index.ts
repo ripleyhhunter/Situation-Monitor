@@ -225,6 +225,9 @@ export type SSEEventType =
   | 'aircraft:update'
   | 'news:update'
   | 'scanner:update'
+  | 'incident:batch'
+  | 'incident:clear-batch'
+  | 'camera:batch'
   | 'heartbeat'
   | 'connected';
 

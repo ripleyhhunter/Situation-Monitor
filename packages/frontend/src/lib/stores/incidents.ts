@@ -13,6 +13,30 @@ export function upsertIncident(incident: Incident): void {
   });
 }
 
+// Bulk upsert: ONE store update (and one Map copy) for a whole batch.
+// The per-item path during the ~5,000-incident connect snapshot was
+// quadratic — a full Map copy and derived-store recompute per incident.
+export function upsertIncidents(list: Incident[]): void {
+  if (list.length === 0) return;
+  incidents.update((map) => {
+    for (const incident of list) {
+      map.set(incident.id, incident);
+    }
+    return new Map(map);
+  });
+}
+
+// Bulk clear — mirrors upsertIncidents for batched clear events.
+export function clearIncidents(ids: string[]): void {
+  if (ids.length === 0) return;
+  incidents.update((map) => {
+    for (const id of ids) {
+      map.delete(id);
+    }
+    return new Map(map);
+  });
+}
+
 // Remove an incident
 export function removeIncident(id: string): void {
   incidents.update((map) => {

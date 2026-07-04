@@ -2,8 +2,8 @@ import { writable, get } from 'svelte/store';
 import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId, ScannerCall } from '$types';
 import { filters } from '$stores/filters';
 import { selectedRegionId } from '$stores/region';
-import { upsertIncident, clearIncident, pruneIncidentsExcept } from '$stores/incidents';
-import { upsertCamera } from '$stores/cameras';
+import { upsertIncident, upsertIncidents, clearIncident, clearIncidents, pruneIncidentsExcept } from '$stores/incidents';
+import { upsertCamera, upsertCameras } from '$stores/cameras';
 import {
   upsertWeatherAlert,
   removeWeatherAlert,
@@ -75,7 +75,10 @@ class SSEService {
 
     // Default to wanting aircraft - filter store will update preference after connection
     const apiUrl = import.meta.env.PUBLIC_API_URL || '';
-    this.eventSource = new EventSource(`${apiUrl}/api/events`);
+    // batch=1: the server sends array events (incident:batch etc.) so the
+    // connect snapshot is ~15 events instead of ~7,000 — without the flag
+    // it falls back to the per-item stream for older deployed frontends.
+    this.eventSource = new EventSource(`${apiUrl}/api/events?batch=1`);
 
     this.eventSource.onopen = () => {
       console.log('SSE connection opened');
@@ -188,6 +191,33 @@ class SSEService {
     this.eventSource.addEventListener('news:update', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<{ regionId: RegionId; news: NewsItem[]; timestamp: string }>;
       updateNews(data.data.news);
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('incident:batch', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<{ incidents: Incident[] }>;
+      const items = data.data.incidents;
+      if (this.reconcilePending) {
+        for (const incident of items) this.snapshotIncidentIds.add(incident.id);
+      }
+      upsertIncidents(items);
+      // Live batches (a poll's worth of new/changed incidents) still
+      // notify per item — dedupe + freshness gates keep it sane.
+      if (!this.reconcilePending) {
+        for (const incident of items) notifyIncident(incident);
+      }
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('incident:clear-batch', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<{ ids: string[] }>;
+      clearIncidents(data.data.ids);
+      lastEventTime.set(data.timestamp);
+    });
+
+    this.eventSource.addEventListener('camera:batch', (event) => {
+      const data = JSON.parse(event.data) as SSEEvent<{ cameras: Camera[] }>;
+      upsertCameras(data.data.cameras);
       lastEventTime.set(data.timestamp);
     });
 
