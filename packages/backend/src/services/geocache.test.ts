@@ -60,7 +60,11 @@ describe('address helpers', () => {
   it('detects intersections', () => {
     expect(isIntersection('14TH ST NW / U ST NW')).toBe(true);
     expect(isIntersection('14TH ST NW & U ST NW')).toBe(true);
+    expect(isIntersection('H ST AND 8TH ST NE')).toBe(true);
     expect(isIntersection('5410 CONNECTICUT AVE NW')).toBe(false);
+    // Venue-style addresses with a house number are NOT intersections —
+    // classifying them as such would skip Census and street validation.
+    expect(isIntersection('1200 SHOPS AT GEORGETOWN PKWY')).toBe(false);
   });
 
   it('extracts the distinguishing street token', () => {
@@ -138,6 +142,33 @@ describe('resolution chain', () => {
     // Intersections never touch Census.
     expect(calledUrls()).toHaveLength(1);
     expect(calledUrls()[0]).toContain('nominatim');
+  });
+
+  it('expires approximate memory-cache entries so pins can upgrade later', async () => {
+    vi.useFakeTimers({ now: new Date('2026-07-04T18:00:00Z') });
+    try {
+      // First resolution degrades to a street centroid (approximate).
+      fetchMock
+        .mockResolvedValueOnce(censusMiss())
+        .mockResolvedValueOnce(nominatimHit(38.9205, -77.0329, 'Belmont Street Northwest'))
+        .mockResolvedValueOnce(nominatimHit(38.958, -77.075, 'Connecticut Avenue Northwest'));
+      const degraded = await svc.geocode('5414 CONNECTICUT AVE NW, WASHINGTON, DC', DC);
+      expect(degraded?.approximate).toBe(true);
+
+      // Within the 6h TTL: served from cache.
+      vi.setSystemTime(new Date('2026-07-04T20:00:00Z'));
+      const within = await svc.geocode('5414 CONNECTICUT AVE NW, WASHINGTON, DC', DC);
+      expect(within).toMatchObject({ cached: true, approximate: true });
+
+      // Past the 6h TTL: the memory entry must expire and the address
+      // re-resolve — this time Census answers exactly.
+      vi.setSystemTime(new Date('2026-07-05T01:00:00Z'));
+      fetchMock.mockResolvedValueOnce(censusHit(38.9617, -77.0738));
+      const upgraded = await svc.geocode('5414 CONNECTICUT AVE NW, WASHINGTON, DC', DC);
+      expect(upgraded).toEqual({ lat: 38.9617, lng: -77.0738, cached: false, approximate: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects hits far from the region center', async () => {

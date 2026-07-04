@@ -108,9 +108,13 @@ export function hasHouseNumber(address: string): boolean {
 }
 
 /** Intersection-style queries get no street validation — Nominatim's
- * answers for them name only one of the two roads. */
+ * answers for them name only one of the two roads. Word-form connectors
+ * (AT/AND) only count when there's no house number: "1200 SHOPS AT
+ * GEORGETOWN PKWY" is a venue address, and classifying it as an
+ * intersection would skip both Census and street validation. */
 export function isIntersection(address: string): boolean {
-  return /\/|&|\bAND\b|\bAT\b/i.test(address);
+  if (/\/|&/.test(address)) return true;
+  return !hasHouseNumber(address) && /\bAND\b|\bAT\b/i.test(address);
 }
 
 const STREET_SUFFIXES = new Set([
@@ -222,6 +226,17 @@ export class GeocacheService {
     return `${region.state}:${region.city}:${address}`;
   }
 
+  /** TTL check the memory tier must apply itself: Redis expires entries
+   * server-side, but the in-memory map would otherwise serve approximate
+   * hits forever on a long-running process — and "approximate upgrades
+   * once the resolvers recover" is half the design. */
+  private isFresh(entry: GeocodedLocation): boolean {
+    const age = Date.now() - Date.parse(entry.geocodedAt);
+    if (!Number.isFinite(age)) return false;
+    const ttlMs = (entry.approximate ? APPROX_CACHE_TTL_SECONDS : CACHE_TTL_SECONDS) * 1000;
+    return age < ttlMs;
+  }
+
   private async getCached(region: GeocodeRegion, address: string): Promise<GeocodedLocation | null> {
     await this.initialize();
 
@@ -230,13 +245,14 @@ export class GeocacheService {
     // Check memory cache first (fastest)
     const cached = memoryCache.get(key);
     if (cached) {
-      return cached;
+      if (this.isFresh(cached)) return cached;
+      memoryCache.delete(key);
     }
 
     // Try Redis if not in memory
     const redisData = await cache.get<GeocodedLocation>(REDIS_PREFIX + key);
 
-    if (redisData) {
+    if (redisData && this.isFresh(redisData)) {
       // Populate memory cache
       boundedSet(key, redisData);
       return redisData;
