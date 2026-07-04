@@ -2,6 +2,8 @@ import type { RegionPack } from './types.js';
 
 import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { bpdCrimeFetcher } from '../fetchers/bpd-crime.js';
+import { adaCrimeFetcher } from '../fetchers/ada-crime.js';
+import { achdClosuresFetcher } from '../fetchers/achd-closures.js';
 import { ItdWzdxFetcher } from '../fetchers/itd-wzdx.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
@@ -87,13 +89,18 @@ export const boiseRegion: RegionPack = {
   // IDZ014 Upper Treasure Valley, IDZ015 Southwest Highlands.
   nwsZones: BOISE_NWS_ZONES,
 
-  // ITD WZDx publishes complete state snapshots — absence implies cleared.
-  // WFIGS "Current" removes fires once contained/out — same semantics.
-  sourcesWithCompleteListing: ['itd-wzdx', 'wfigs'],
+  // Complete-snapshot sources — absence from a successful poll implies
+  // cleared/ended: ITD WZDx and ACHD RITA are full listings, and WFIGS
+  // "Current" removes fires once contained/out.
+  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs'],
 
   cameraFetchers: [boiseLandmarkWebcamsFetcher],
-  trafficIncidentFetchers: [itdWzdx],
-  crimeFetchers: [bpdCrimeFetcher],
+  trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher],
+  // Two crime sources, partitioned by agency so nothing double-plots:
+  // bpd-crime is the city's own layer (freshest available for Boise PD);
+  // ada-crime is county CrimeMapper for ACSO/Meridian/Garden City, whose
+  // Boise PD rows backfill over 1-3 months and are excluded there.
+  crimeFetchers: [bpdCrimeFetcher, adaCrimeFetcher],
   shotspotterFetchers: [],
   emergencyAlertFetchers: [boiseWildfire],
 

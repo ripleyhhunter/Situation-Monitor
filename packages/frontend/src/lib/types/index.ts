@@ -24,8 +24,9 @@ export type DataSource =
   | 'pg-crime'
   // Boise region
   | 'bpd-crime'
-  | 'bpd-cfs'
+  | 'ada-crime'
   | 'itd-wzdx'
+  | 'achd'
   // Shared
   | 'nws'
   | 'airnow'

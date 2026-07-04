@@ -132,6 +132,8 @@ export class ItdWzdxFetcher extends BaseFetcher<Incident> {
       status: 'active',
       category: core.event_type || 'work-zone',
       metadata: {
+        // Ongoing situation: exempt from the frontend's event-time filter.
+        ongoing: true,
         eventType: core.event_type,
         direction: core.direction,
         vehicleImpact: props.vehicle_impact,

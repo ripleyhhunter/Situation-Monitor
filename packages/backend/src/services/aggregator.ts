@@ -518,6 +518,7 @@ class AggregatorService {
       'moco-crime': THIRTY_DAYS,
       'pg-crime': THIRTY_DAYS,
       'bpd-crime': SIXTY_DAYS, // BPD feed lags ~1 month behind real time
+      'ada-crime': THIRTY_DAYS, // matches the fetcher's 30-day window
       'dc-shotspotter': THIRTY_DAYS,
       'default': TWENTY_FOUR_HOURS,
     };

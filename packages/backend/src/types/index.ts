@@ -23,9 +23,10 @@ export type DataSource =
   | 'moco-crime'      // Montgomery County, MD
   | 'pg-crime'        // Prince George's County, MD
   // Boise region
-  | 'bpd-crime'       // Boise PD historical crime
-  | 'bpd-cfs'         // Boise PD calls for service (more real-time)
+  | 'bpd-crime'       // Boise PD city crime layer
+  | 'ada-crime'       // Ada County CrimeMapper (county agencies, BPD excluded)
   | 'itd-wzdx'        // Idaho Transportation Dept work zones
+  | 'achd'            // Ada County Highway District roadwork/closures
   // Shared / cross-region
   | 'nws'
   | 'airnow'
