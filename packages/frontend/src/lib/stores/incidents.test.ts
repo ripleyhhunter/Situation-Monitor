@@ -5,6 +5,7 @@ import {
   upsertIncident,
   clearIncident,
   clearAllIncidents,
+  pruneIncidentsExcept,
   activeIncidents,
   incidentsByType,
 } from './incidents';
@@ -51,6 +52,14 @@ describe('incident store lifecycle', () => {
 
     expect(get(incidents).size).toBe(0);
     expect(get(activeIncidents)).toEqual([]);
+  });
+
+  it('pruneIncidentsExcept drops entries not re-sent in a reconnect snapshot', () => {
+    upsertIncident(mkIncident({ id: 'kept' }));
+    upsertIncident(mkIncident({ id: 'ghost' }));
+
+    pruneIncidentsExcept(new Set(['kept']));
+    expect([...get(incidents).keys()]).toEqual(['kept']);
   });
 
   it('tolerates an unknown IncidentType from a newer backend', () => {

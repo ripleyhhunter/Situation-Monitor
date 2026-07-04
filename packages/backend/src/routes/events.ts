@@ -8,7 +8,9 @@ import type { Aircraft, NewsItem, RegionId } from '../types/index.js';
 /** Coerce an untrusted region value to a known RegionId. */
 function toRegionId(value: unknown): RegionId {
   const raw = String(value ?? '').toLowerCase();
-  return raw in regionsById ? (raw as RegionId) : defaultRegionId;
+  // hasOwn, not `in`: prototype-chain keys ("constructor", "toString")
+  // must not validate.
+  return Object.hasOwn(regionsById, raw) ? (raw as RegionId) : defaultRegionId;
 }
 
 const router = Router();

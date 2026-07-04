@@ -43,6 +43,20 @@ export function clearAllWeatherAlerts(): void {
   weatherAlerts.set(new Map());
 }
 
+// Drop every alert whose id was not re-sent in a reconnect snapshot.
+export function pruneWeatherAlertsExcept(keep: Set<string>): void {
+  weatherAlerts.update((map) => {
+    let changed = false;
+    for (const id of map.keys()) {
+      if (!keep.has(id)) {
+        map.delete(id);
+        changed = true;
+      }
+    }
+    return changed ? new Map(map) : map;
+  });
+}
+
 // Derived: active alerts for the selected region, sorted by severity.
 export const activeWeatherAlerts = derived(
   [weatherAlerts, selectedRegionId],

@@ -70,7 +70,10 @@ export class WMATAFetcher extends BaseFetcher<Incident> {
       });
 
       if (!response.Incidents || !Array.isArray(response.Incidents)) {
-        return [];
+        // 'wmata' is a complete-listing source: a false-empty "success" here
+        // would cross-clear every live metro alert. Surface contract drift as
+        // a failure so BaseFetcher serves the last good snapshot instead.
+        throw new Error('WMATA: unexpected response shape (no Incidents array)');
       }
 
       return response.Incidents.map((incident) => this.normalizeIncident(incident));

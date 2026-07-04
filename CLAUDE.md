@@ -92,7 +92,7 @@ npm run test:watch       # vitest watch mode
 # Run a single backend test
 cd packages/backend
 npx vitest run src/config.test.ts                     # one file
-npx vitest run -t "returns cached data"               # by test name (substring match)
+npx vitest run -t "return cached data"                # by test name (substring match)
 
 # The PulsePoint E2E (live Chromium against web.pulsepoint.org) is skipped
 # unless RUN_E2E is set:

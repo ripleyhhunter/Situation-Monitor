@@ -31,7 +31,11 @@ export function wallClockToUtcMs(
   timeZone: string,
 ): number {
   const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
-  return utcGuess - zoneOffsetMs(utcGuess, timeZone);
+  // Two-pass resolution: the offset sampled at the naive guess can be wrong
+  // when a DST transition falls between the guess and the true instant
+  // (several hours around each transition would otherwise convert 1h off).
+  const firstPass = utcGuess - zoneOffsetMs(utcGuess, timeZone);
+  return utcGuess - zoneOffsetMs(firstPass, timeZone);
 }
 
 /** Today's calendar date as seen in a zone (month is 1-12). */

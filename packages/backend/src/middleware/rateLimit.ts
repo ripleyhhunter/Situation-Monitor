@@ -27,9 +27,15 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     // Behind cloudflared every visitor's req.ip is 127.0.0.1 (one shared
-    // bucket for the whole world) — prefer the tunnel-provided client IP.
+    // bucket for the whole world) — prefer the tunnel-provided client IP,
+    // but ONLY when the request actually arrived via the local tunnel
+    // process. Honoring the header from arbitrary peers would let a direct
+    // client mint a fresh bucket per request (bypass) or 429 a victim's key.
+    const peer = req.socket?.remoteAddress || '';
+    const peerIsLocal = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
     const cfIp = req.headers['cf-connecting-ip'];
-    const clientId = (typeof cfIp === 'string' && cfIp) || req.ip || 'unknown';
+    const clientId =
+      (peerIsLocal && typeof cfIp === 'string' && cfIp) || req.ip || 'unknown';
     const key = `${keyPrefix}:${clientId}`;
 
     try {

@@ -233,6 +233,17 @@ class AggregatorService {
       if (sse.anyClientWantsAircraftFor(region.id)) {
         await this.fetchAircraft(region);
       } else {
+        // Drop frozen positions once polling stops — otherwise the connect
+        // snapshot serves aircraft where they were hours ago.
+        const state = this.getState(region.id);
+        if (state.aircraft.size > 0) {
+          state.aircraft.clear();
+          sse.broadcast('aircraft:update', {
+            regionId: region.id,
+            aircraft: [],
+            timestamp: new Date().toISOString(),
+          });
+        }
         logger.debug(`Skipping aircraft (${tag}) - no clients want aircraft data for this region`);
       }
     }, false);

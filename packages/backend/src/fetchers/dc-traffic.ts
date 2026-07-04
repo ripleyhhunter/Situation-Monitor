@@ -137,7 +137,6 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
   private normalizeIncident(feature: DCTrafficFeature, layerName: string): Incident | null {
     const attrs = feature.attributes;
     const coords = this.getCoordinates(feature);
-    const now = new Date().toISOString();
 
     // Debug log raw time values
     logger.debug(`DC Traffic time fields for ${attrs.OBJECTID}:`, {
@@ -233,7 +232,8 @@ export class DCTrafficFetcher extends BaseFetcher<Incident> {
         address: attrs.street || undefined,
       },
       timestamp,
-      updatedAt: now,
+      // Feed-derived so unchanged records don't re-broadcast every poll
+      updatedAt: editedTime ?? timestamp,
       regionId: 'dc',
       source: 'dc-traffic',
       title,

@@ -67,11 +67,17 @@ export class PGCrimeFetcher extends BaseFetcher<Incident> {
 
       logger.info(`PG Crime: fetched ${response.length} incidents from last 30 days`);
 
+      // Day-granularity $where returns the whole boundary day — records up
+      // to ~31 days old — which the 30-day expiry would clear/re-add in a
+      // loop. Keep only records inside the expiry window.
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
       return response
         .filter((record) => {
           const lat = parseFloat(record.latitude || '');
           const lng = parseFloat(record.longitude || '');
-          return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+          const ts = new Date(record.date || 0).getTime();
+          return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0 && ts >= cutoff;
         })
         .map((record) => this.normalizeCrime(record));
     } catch (error) {

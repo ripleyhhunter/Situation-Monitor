@@ -88,7 +88,7 @@ Monorepo (Turborepo + npm workspaces): `packages/frontend` (SvelteKit 2 / Svelte
 | `GET /api/health` | Health check with service status |
 | `GET /api/events` | SSE stream (snapshot + live updates) |
 | `POST /api/events/preferences` | Per-client aircraft preference |
-| `GET /api/incidents` | Active incidents (`?type`, `?severity` filters) |
+| `GET /api/incidents` | Active incidents (`?type`, `?minSeverity`, `?limit` filters) |
 | `GET /api/cameras` | All cameras |
 | `GET /api/weather` | Active weather alerts |
 | `GET /api/aqi` | Air quality readings |

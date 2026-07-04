@@ -41,6 +41,14 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
       // Parse HTML table format
       const items = this.parseHTML(html);
 
+      // 'alertdc' is a complete-listing source: zero parsed rows from a
+      // substantive page means the markup drifted (the feed has changed
+      // format before), and returning [] would cross-clear every live
+      // alert. A genuinely empty feed is a small stub page.
+      if (items.length === 0 && html.length > 2000) {
+        throw new Error('AlertDC: page returned but no alerts parsed (markup drift?)');
+      }
+
       const incidents: Incident[] = [];
       for (const item of items) {
         const incident = await this.normalizeAlert(item);
@@ -183,7 +191,8 @@ export class AlertDCFetcher extends BaseFetcher<Incident> {
         address: location.address,
       },
       timestamp,
-      updatedAt: new Date().toISOString(),
+      // Feed-derived so unchanged alerts don't re-broadcast every poll
+      updatedAt: timestamp,
       regionId: 'dc',
       source: 'alertdc',
       title: item.title,

@@ -330,7 +330,10 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
       structuredIncidents.push({
         type: lines[0]?.trim() || '',
         address: lines.find((l: string) => cityRe.test(l))?.trim() || '',
-        time: lines.find((l: string) => /\d+:\d+\s*(AM|PM)/i.test(l))?.trim() || '',
+        // Extract the bare time token (not the whole line): the id hashes
+        // this value, and surrounding dynamic text would churn identities —
+        // and disagree with the text-parse path's clean token.
+        time: lines.map((l: string) => l.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i)).find(Boolean)?.[1] || '',
         units: lines.filter((l: string) => /^[A-Z]\d+|^AMR\d+|^T\d+|^M\d+/.test(l)).join(' '),
         status: text.toLowerCase().includes('closed') ? 'closed' : 'active',
       });

@@ -128,8 +128,9 @@ export class AirNowFetcher extends BaseFetcher<AirQuality> {
     if (!m) return new Date().toISOString();
 
     const offset = TZ_OFFSET_HOURS[(obs.LocalTimeZone || '').trim().toUpperCase()];
+    const hour = typeof obs.HourObserved === 'number' ? obs.HourObserved : 0;
     // Unknown zone: treat as UTC — stable, unlike host-local interpretation.
-    const hourUtc = offset !== undefined ? obs.HourObserved - offset : obs.HourObserved || 0;
+    const hourUtc = offset !== undefined ? hour - offset : hour;
     return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], hourUtc)).toISOString();
   }
 

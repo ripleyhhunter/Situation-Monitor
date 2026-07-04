@@ -36,6 +36,21 @@ export function clearAllIncidents(): void {
   incidents.set(new Map());
 }
 
+// Drop every incident whose id was not re-sent in a reconnect snapshot —
+// removes stale ghosts without an intermediate empty state.
+export function pruneIncidentsExcept(keep: Set<string>): void {
+  incidents.update((map) => {
+    let changed = false;
+    for (const id of map.keys()) {
+      if (!keep.has(id)) {
+        map.delete(id);
+        changed = true;
+      }
+    }
+    return changed ? new Map(map) : map;
+  });
+}
+
 // Derived store for active incidents in the currently selected region.
 export const activeIncidents = derived(
   [incidents, selectedRegionId],

@@ -186,9 +186,14 @@ class CacheService {
     try {
       if (this.redis && this.connected) {
         const count = await withTimeout<number>(this.redis.incr(key), this.commandTimeout);
-        // NX = only set when no TTL exists — heals a missing TTL on any hit
-        // (e.g. if the expire after the first incr failed).
-        await withTimeout(this.redis.expire(key, ttlSeconds, 'NX'), this.commandTimeout).catch(() => {});
+        // Set the window TTL when missing (ttl === -1: key exists, no
+        // expiry). Self-healing on every hit, and unlike EXPIRE ... NX it
+        // works on Redis < 7 — a swallowed NX error there would leave an
+        // immortal counter that permanently 429s the client.
+        const ttl = await withTimeout<number>(this.redis.ttl(key), this.commandTimeout).catch(() => 0);
+        if (ttl === -1) {
+          await withTimeout(this.redis.expire(key, ttlSeconds), this.commandTimeout).catch(() => {});
+        }
         return count;
       }
     } catch (error) {

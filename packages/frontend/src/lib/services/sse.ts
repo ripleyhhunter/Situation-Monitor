@@ -2,12 +2,12 @@ import { writable, get } from 'svelte/store';
 import type { SSEEvent, Incident, Camera, WeatherAlert, AirQuality, CurrentWeather, Aircraft, NewsItem, RegionId } from '$types';
 import { filters } from '$stores/filters';
 import { selectedRegionId } from '$stores/region';
-import { upsertIncident, clearIncident, clearAllIncidents } from '$stores/incidents';
+import { upsertIncident, clearIncident, pruneIncidentsExcept } from '$stores/incidents';
 import { upsertCamera } from '$stores/cameras';
 import {
   upsertWeatherAlert,
   removeWeatherAlert,
-  clearAllWeatherAlerts,
+  pruneWeatherAlertsExcept,
   setAirQuality,
   setCurrentWeather,
 } from '$stores/weather';
@@ -40,6 +40,15 @@ class SSEService {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private lastEventAt = 0;
   private static readonly STALE_STREAM_MS = 90000;
+
+  // Reconnect reconciliation: the server replays its full active snapshot
+  // after 'connected'. Rather than clearing stores up-front (blank map that
+  // refills, and an empty dashboard if the connection dies mid-snapshot),
+  // we track the ids seen during the burst and prune everything else at the
+  // first heartbeat — ghosts still purge, with no intermediate empty state.
+  private reconcilePending = false;
+  private snapshotIncidentIds = new Set<string>();
+  private snapshotAlertIds = new Set<string>();
 
   constructor() {
     // Auto-reconnect on page visibility change
@@ -83,11 +92,10 @@ class SSEService {
     this.eventSource.addEventListener('connected', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<{ clientId: string }>;
       console.log('SSE connected:', data);
-      // The server replays its full active snapshot right after 'connected'.
-      // Reset the snapshot-replayed stores so incidents/alerts cleared while
-      // we were disconnected don't linger as ghosts.
-      clearAllIncidents();
-      clearAllWeatherAlerts();
+      // Snapshot reconciliation starts here (see field docs above).
+      this.reconcilePending = true;
+      this.snapshotIncidentIds.clear();
+      this.snapshotAlertIds.clear();
       this.lastEventAt = Date.now();
       this.currentClientId = data.data.clientId;
       clientId.set(data.data.clientId);
@@ -101,16 +109,26 @@ class SSEService {
       const data = JSON.parse(event.data) as SSEEvent;
       this.lastEventAt = Date.now();
       lastEventTime.set(data.timestamp);
+      // The snapshot burst is written synchronously before any broadcast,
+      // so by the first heartbeat everything current has been re-sent —
+      // whatever wasn't is a ghost from before the disconnect.
+      if (this.reconcilePending) {
+        this.reconcilePending = false;
+        pruneIncidentsExcept(this.snapshotIncidentIds);
+        pruneWeatherAlertsExcept(this.snapshotAlertIds);
+      }
     });
 
     this.eventSource.addEventListener('incident:new', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
+      if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
 
     this.eventSource.addEventListener('incident:update', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
+      if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
@@ -129,6 +147,7 @@ class SSEService {
 
     this.eventSource.addEventListener('weather:alert', (event) => {
       const data = JSON.parse(event.data) as SSEEvent<WeatherAlert>;
+      if (this.reconcilePending) this.snapshotAlertIds.add(data.data.id);
       upsertWeatherAlert(data.data);
       lastEventTime.set(data.timestamp);
     });
