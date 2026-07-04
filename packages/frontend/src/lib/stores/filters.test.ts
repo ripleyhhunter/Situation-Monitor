@@ -32,6 +32,7 @@ function freshFilters(): FilterState {
     showLocationOnlyCameras: false,
     showWeather: true,
     showCrimeHeatmap: false,
+    showRadar: false,
     showAircraft: false,
     hideGroundAircraft: true,
     timeRange: '24h',
@@ -81,5 +82,17 @@ describe('severity and time filtering', () => {
 
     filters.update((f) => ({ ...f, timeRange: '1h' }));
     expect(get(filteredIncidents).map((i) => i.id)).toEqual(['recent']);
+  });
+
+  it('exempts ongoing situations (active fires, work zones) from the time window', () => {
+    upsertIncident(mkIncident({
+      id: 'three-week-fire',
+      type: 'fire',
+      timestamp: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString(),
+      metadata: { ongoing: true },
+    }));
+
+    filters.update((f) => ({ ...f, timeRange: '24h' }));
+    expect(get(filteredIncidents).map((i) => i.id)).toEqual(['three-week-fire']);
   });
 });

@@ -5,6 +5,7 @@ import { bpdCrimeFetcher } from '../fetchers/bpd-crime.js';
 import { adaCrimeFetcher } from '../fetchers/ada-crime.js';
 import { achdClosuresFetcher } from '../fetchers/achd-closures.js';
 import { ItdWzdxFetcher } from '../fetchers/itd-wzdx.js';
+import { WildfireFetcher } from '../fetchers/wildfire.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
@@ -66,6 +67,14 @@ const boisePulsePoint = new PulsePointFetcher({
 
 const itdWzdx = new ItdWzdxFetcher({ bounds: TREASURE_VALLEY_BOUNDS });
 
+// Wildfire awareness envelope: SW Idaho / eastern Oregon border country,
+// much wider than the Treasure Valley — a large fire 100 km out still
+// matters here (smoke, evacuations, I-84 closures).
+const boiseWildfire = new WildfireFetcher({
+  regionId: 'boise',
+  bounds: { lamin: 42.5, lamax: 45.0, lomin: -117.5, lomax: -114.5 },
+});
+
 export const boiseRegion: RegionPack = {
   id: 'boise',
   name: 'Boise, ID',
@@ -80,9 +89,10 @@ export const boiseRegion: RegionPack = {
   // IDZ014 Upper Treasure Valley, IDZ015 Southwest Highlands.
   nwsZones: BOISE_NWS_ZONES,
 
-  // ITD WZDx and ACHD RITA publish complete snapshots — absence implies
-  // cleared/ended.
-  sourcesWithCompleteListing: ['itd-wzdx', 'achd'],
+  // Complete-snapshot sources — absence from a successful poll implies
+  // cleared/ended: ITD WZDx and ACHD RITA are full listings, and WFIGS
+  // "Current" removes fires once contained/out.
+  sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs'],
 
   cameraFetchers: [boiseLandmarkWebcamsFetcher],
   trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher],
@@ -92,7 +102,7 @@ export const boiseRegion: RegionPack = {
   // Boise PD rows backfill over 1-3 months and are excluded there.
   crimeFetchers: [bpdCrimeFetcher, adaCrimeFetcher],
   shotspotterFetchers: [],
-  emergencyAlertFetchers: [],
+  emergencyAlertFetchers: [boiseWildfire],
 
   pulsePointFetcher: boisePulsePoint,
   // Valley Regional Transit publishes only GTFS-realtime protobuf (no JSON
