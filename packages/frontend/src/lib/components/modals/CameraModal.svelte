@@ -62,7 +62,11 @@
       <div>
         <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{camera.name}</h2>
         <p class="text-sm text-gray-500 dark:text-gray-400">
-          Source: {camera.source.toUpperCase()} &bull; Updated {formatRelativeTime(camera.lastUpdated)}
+          {#if camera.source === 'idaho511'}
+            Source: Idaho 511 / ITD &bull; Live still — refreshes every 15-60s
+          {:else}
+            Source: {camera.source.toUpperCase()} &bull; Updated {formatRelativeTime(camera.lastUpdated)}
+          {/if}
         </p>
       </div>
       <button
@@ -169,7 +173,7 @@
       <div class="flex items-center justify-between">
         <div class="text-sm text-gray-600 dark:text-gray-400">
           <p>Location: {camera.location.lat.toFixed(4)}, {camera.location.lng.toFixed(4)}</p>
-          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source.toUpperCase()}</p>
+          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source === 'idaho511' ? 'Idaho 511 / ITD' : camera.source.toUpperCase()}</p>
         </div>
         <div class="flex gap-2">
           {#if camera.imageUrl}
