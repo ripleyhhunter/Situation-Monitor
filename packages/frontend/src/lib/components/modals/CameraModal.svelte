@@ -8,7 +8,76 @@
   // Flag-based image failure state: mutating img.src to '' in the error
   // handler can re-fire the error event in a loop.
   let imageFailed = false;
-  $: if (camera) imageFailed = false;
+
+  // In-modal HLS playback (VDOT/Arlington/PG county Wowza streams — all
+  // keyless with CORS *). Still-first when a snapshot exists; stream-only
+  // sources go straight to video. A fatal hls error degrades to the still
+  // or the link-out branch instead of a black box.
+  let playingStream = false;
+  let hlsFailed = false;
+  $: if (camera) {
+    imageFailed = false;
+    playingStream = false;
+    hlsFailed = false;
+  }
+  $: isHls = !!camera.streamUrl && /\.m3u8($|\?)/i.test(camera.streamUrl);
+
+  /** Svelte action: attach an HLS stream to a <video> (native on Safari,
+   * hls.js elsewhere — dynamically imported so the chunk only loads when
+   * someone actually plays a stream). */
+  function hlsPlay(node: HTMLVideoElement, url: string | undefined) {
+    let hls: { destroy(): void } | null = null;
+    let cancelled = false;
+
+    const start = async (streamUrl: string | undefined) => {
+      if (!streamUrl) return;
+      if (node.canPlayType('application/vnd.apple.mpegurl')) {
+        node.src = streamUrl;
+        node.play().catch(() => {});
+        return;
+      }
+      try {
+        const mod = await import('hls.js');
+        const Hls = mod.default;
+        if (cancelled) return;
+        if (!Hls.isSupported()) {
+          hlsFailed = true;
+          return;
+        }
+        const instance = new Hls({ maxBufferLength: 15 });
+        hls = instance;
+        instance.on(Hls.Events.ERROR, (_evt, data) => {
+          if (data?.fatal) {
+            hlsFailed = true;
+            instance.destroy();
+            if (hls === instance) hls = null;
+          }
+        });
+        instance.loadSource(streamUrl);
+        instance.attachMedia(node);
+        node.play().catch(() => {});
+      } catch {
+        hlsFailed = true;
+      }
+    };
+
+    start(url);
+    return {
+      update(newUrl: string | undefined) {
+        if (newUrl !== url) {
+          url = newUrl;
+          hls?.destroy();
+          hls = null;
+          start(newUrl);
+        }
+      },
+      destroy() {
+        cancelled = true;
+        hls?.destroy();
+        hls = null;
+      },
+    };
+  }
 
   const dispatch = createEventDispatcher();
 
@@ -64,6 +133,12 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">
           {#if camera.source === 'idaho511'}
             Source: Idaho 511 / ITD &bull; Live still — refreshes every 15-60s
+          {:else if camera.source === 'vdot'}
+            Source: VDOT 511 Virginia &bull; Live still (~45s) + live video
+          {:else if camera.source === 'arlington'}
+            Source: Arlington County ITS &bull; Live video
+          {:else if camera.source === 'pgc'}
+            Source: Prince George's County TRIP &bull; Live video
           {:else}
             <!-- lastUpdated is a roster stamp, not an image age — showing
                  "Updated 3 days ago" over a live thumbnail misleads. -->
@@ -94,6 +169,20 @@
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowfullscreen
         ></iframe>
+      {:else if isHls && !hlsFailed && (playingStream || !camera.imageUrl || imageFailed)}
+        <!-- In-modal live video (keyless Wowza HLS) -->
+        <!-- svelte-ignore a11y-media-has-caption -->
+        <video
+          use:hlsPlay={camera.streamUrl}
+          class="w-full h-full object-contain"
+          muted
+          autoplay
+          playsinline
+          controls
+        ></video>
+        <div class="absolute top-2 right-2 text-xs text-white bg-red-600/80 px-2 py-0.5 rounded font-semibold pointer-events-none">
+          LIVE
+        </div>
       {:else if camera.imageUrl && !imageFailed}
         <img
           src={camera.imageUrl}
@@ -101,6 +190,15 @@
           class="w-full h-full object-contain"
           on:error={() => (imageFailed = true)}
         />
+        {#if isHls && !hlsFailed}
+          <button
+            on:click={() => (playingStream = true)}
+            class="absolute bottom-2 left-2 px-3 py-1.5 bg-indigo-600/90 hover:bg-indigo-600 text-white text-xs rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+            Play live video
+          </button>
+        {/if}
         <!-- Refresh hint -->
         <div class="absolute bottom-2 right-2 text-xs text-white/70 bg-black/50 px-2 py-1 rounded">
           Image may be cached. Click refresh to update.
@@ -175,7 +273,7 @@
       <div class="flex items-center justify-between">
         <div class="text-sm text-gray-600 dark:text-gray-400">
           <p>Location: {camera.location.lat.toFixed(4)}, {camera.location.lng.toFixed(4)}</p>
-          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source === 'idaho511' ? 'Idaho 511 / ITD' : camera.source.toUpperCase()}</p>
+          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source === 'idaho511' ? 'Idaho 511 / ITD' : camera.source === 'vdot' ? 'VDOT 511 Virginia' : camera.source === 'arlington' ? 'Arlington County ITS' : "Prince George's County TRIP"}</p>
         </div>
         <div class="flex gap-2">
           {#if camera.imageUrl}
@@ -206,7 +304,7 @@
             >
               View Live
             </a>
-          {:else if camera.streamUrl}
+          {:else if camera.streamUrl && !isHls}
             <a
               href={camera.streamUrl}
               target="_blank"
@@ -215,7 +313,7 @@
             >
               Video Stream
             </a>
-          {:else}
+          {:else if !isHls}
             <button
               on:click={() => window.location.reload()}
               class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"

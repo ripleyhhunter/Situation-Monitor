@@ -3,6 +3,9 @@ import type { RegionPack } from './types.js';
 import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
 import { dcCamerasFetcher } from '../fetchers/dc-cameras.js';
 import { landmarkWebcamsFetcher } from '../fetchers/landmark-webcams.js';
+import { vdotCamerasFetcher } from '../fetchers/vdot-cameras.js';
+import { arlingtonCamerasFetcher } from '../fetchers/arlington-cameras.js';
+import { pgcCamerasFetcher } from '../fetchers/pgc-cameras.js';
 import { mdchartIncidentsFetcher } from '../fetchers/mdchart-incidents.js';
 import { dcCrimeFetcher } from '../fetchers/dc-crime.js';
 import { mocoCrimeFetcher } from '../fetchers/moco-crime.js';
@@ -103,6 +106,11 @@ export const dcRegion: RegionPack = {
     mdchartCamerasFetcher,
     dcCamerasFetcher,
     landmarkWebcamsFetcher,
+    // NoVA/county coverage (2026-07 camera sweep): VDOT 511 stills+HLS,
+    // Arlington ITS HLS, PG County TRIP HLS.
+    vdotCamerasFetcher,
+    arlingtonCamerasFetcher,
+    pgcCamerasFetcher,
   ],
 
   trafficIncidentFetchers: [
