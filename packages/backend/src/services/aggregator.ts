@@ -531,7 +531,15 @@ class AggregatorService {
         historyBatch.push(incident);
         added.push(incident);
         hasChanges = true;
-      } else if (existing.updatedAt !== incident.updatedAt) {
+      } else if (
+        existing.updatedAt !== incident.updatedAt ||
+        // Corrected geocodes must propagate: pulsepoint re-resolves
+        // coordinates every scrape, and a pin that moves (fallback ->
+        // real geocode once the resolver recovers) leaves updatedAt
+        // unchanged. Same precedent as the camera content diff.
+        existing.location.lat !== incident.location.lat ||
+        existing.location.lng !== incident.location.lng
+      ) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         historyBatch.push(incident);

@@ -496,9 +496,17 @@
     const size = isFresh ? 28 : 24;
     const pulseClass = isFresh ? 'pulse-fresh' : '';
 
+    // Approximate pins (failed/degraded geocode) get a dashed halo and
+    // muted opacity — they mark an area, not an address. Baked into the
+    // html string so the setIcon diff restyles when the flag flips.
+    const isApprox = incident.metadata?.approximate === true;
+    const approxStyle = isApprox
+      ? `outline: 2px dashed ${color}; outline-offset: 3px; opacity: ${Math.min(opacity, 0.6)};`
+      : `opacity: ${opacity};`;
+
     const html = `
           <div class="incident-marker severity-${incident.severity} ${pulseClass}"
-               style="width: ${size}px; height: ${size}px; background-color: ${color}; opacity: ${opacity};">
+               style="width: ${size}px; height: ${size}px; background-color: ${color}; ${approxStyle}">
             <svg viewBox="0 0 24 24" width="${size - 10}" height="${size - 10}" fill="white" style="margin: ${(size - (size - 10)) / 2}px;">
               ${getIncidentIcon(incident.type)}
             </svg>

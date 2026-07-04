@@ -57,6 +57,15 @@ was broken; this catalog records what was worth **building next**, what was reje
 
 ## Source-of-truth notes for implementers
 
+- **US Census Bureau geocoder** (added 2026-07-04, geocoding-accuracy fix): free, keyless,
+  authoritative for house-numbered US addresses —
+  `geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=...&benchmark=Public_AR_Current&format=json`.
+  Primary resolver in `services/geocache.ts`; Nominatim is fallback-only (intersections, bare
+  streets) because it fuzzy-matches wrong streets and rate-blocks this IP (429) under load —
+  two backends geocoding from one machine exceeded its 1 req/sec policy, and every 429 was
+  silently becoming a fabricated quadrant-fallback pin (66% of live DC PulsePoint incidents
+  at the time of diagnosis).
+
 - **RainViewer**: index `https://api.rainviewer.com/public/weather-maps.json` → tiles
   `{host}{path}/256/{z}/{x}/{y}/8/1_1.png`. Frame paths are opaque hashes that die when they age out
   of the 2 h window — always rebuild from a fresh index. Attribution "Weather data by RainViewer" required.
