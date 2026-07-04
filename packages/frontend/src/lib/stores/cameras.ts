@@ -1,6 +1,5 @@
 import { writable, derived } from 'svelte/store';
 import type { Camera } from '$types';
-import { filters } from './filters';
 import { selectedRegionId } from './region';
 
 // Store for all cameras across every region.
@@ -45,19 +44,14 @@ export const cameraList = derived(
     Array.from($cameras.values()).filter((c) => c.regionId === $regionId),
 );
 
-// Filtered cameras for the selected region (respects showLocationOnlyCameras filter).
+// Filtered cameras for the selected region.
 export const filteredCameraList = derived(
-  [cameras, filters, selectedRegionId],
-  ([$cameras, $filters, $regionId]) => {
-    const regional = Array.from($cameras.values()).filter((c) => c.regionId === $regionId);
-
-    if ($filters.showLocationOnlyCameras) {
-      return regional;
-    }
-
-    // Hide DC cameras which are location-only markers (no public feeds available).
-    // Keep landmark webcams which have working external links via streamUrl.
-    return regional.filter((camera) => camera.source !== 'dc');
+  [cameras, selectedRegionId],
+  ([$cameras, $regionId]) => {
+    // Every remaining camera source has a real feed (the feedless DDOT
+    // pin layer was removed in the 2026-07 camera sweep), so no
+    // location-only filtering is needed anymore.
+    return Array.from($cameras.values()).filter((c) => c.regionId === $regionId);
   },
 );
 

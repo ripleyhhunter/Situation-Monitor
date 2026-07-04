@@ -166,8 +166,12 @@ modules exist; the table below covers the notable ones.
 |---------|--------|------|----------|-------|
 | `pulsepoint.ts` | PulsePoint | Fire/EMS incidents | 2 min | Playwright headless browser; only runs when SSE clients connected |
 | `mdchart-cameras.ts` | MD CHART | Traffic cameras | 5 min | Maryland highways |
+| `vdot-cameras.ts` | VDOT 511 | NoVA cameras | 5 min | 418 metro cams, ~45s stills + HLS; Arlington-jurisdiction relays deduped |
+| `arlington-cameras.ts` | Arlington County | County cameras | 5 min | 284 ITS cams, HLS-only (in-modal hls.js) |
+| `pgc-cameras.ts` | PG County TRIP | County cameras | 5 min | County-owned HLS; CHARTFeed relays deduped |
+| `weatherbug-cameras.ts` | WeatherBug | DMV stills | 5 min | 30 cams, stable instacam still URLs |
+| `hivis-cameras.ts` | USGS HIVIS | River-gauge cams | 5 min | Both regions; stills at flood gauges, feed timestamps |
 | `mdchart-incidents.ts` | MD CHART | Traffic incidents | 1 min | Crashes, closures |
-| `dc-cameras.ts` | DC Open Data | Traffic cameras | 5 min | DC street cameras |
 | `dc-crime.ts` | DC Open Data | Crime reports | 15 min | ArcGIS REST |
 | `moco-crime.ts` | Montgomery County | Crime reports | 15 min | Regional expansion |
 | `pg-crime.ts` | Prince George's County | Crime reports | 15 min | Regional expansion |
@@ -189,13 +193,17 @@ The frontend SSE client handles event types `incident:new/update/clear`, `camera
 
 ### Camera Sources (landmark-webcams.ts)
 
-23 curated webcams organized by type:
-- **Official (2)**: US Capitol (Senate.gov), Washington Monument (NPS)
-- **YouTube (2)**: White House 24/7, FOX 5 DC Skyline 24/7
-- **FOX 5 DC (8)**: The Wharf, The Stacks, Gaithersburg, Rockville, National Harbor, Fairfax, Reston, Loudoun
-- **EarthCam (4)**: Monument, Cherry Blossoms, Kennedy Center, MLK Memorial
-- **WeatherBug (6)**: Lincoln Memorial, Arlington, Cathedral, Pentagon, Nationals Park, National Harbor
-- **Seasonal (1)**: BloomCam (Cherry Blossoms)
+Curated DC webcams (refreshed 2026-07-04 — every entry live-verified):
+- **Official (3)**: US Capitol (Senate.gov), Washington Monument (NPS), NPS Air-quality Mall cam (direct still)
+- **YouTube 24/7 (4)**: earthTV White House, FOX 5 DC Skyline, Union Station railcam, EarthCam Monument
+- **FOX 5 DC (8)**: Wharf, Stacks, Gaithersburg, Rockville, National Harbor, Reston, Loudoun, Prince William Marina
+- **EarthCam pages (3)**: Cherry Blossoms, Kennedy Center, MLK Memorial
+- **National Zoo HLS (5)**: Panda, Elephant, Lion, Naked Mole-Rat, Ferret (Wowza, CORS *, play in-modal)
+- **Seasonal (1)**: BloomCam
+
+**Note:** the old DDOT "DC street cameras" layer was REMOVED (2026-07): the
+dataset is a 2021 pole inventory with no feeds, and DC-proper street camera
+imagery no longer exists publicly (DDOT viewer dead, TrafficLand keyed).
 
 ### API Endpoints
 | Endpoint | Description |

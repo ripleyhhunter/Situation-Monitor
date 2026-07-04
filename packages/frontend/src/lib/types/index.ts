@@ -67,10 +67,11 @@ export interface Incident {
 // Camera types
 export type CameraSource =
   | 'mdchart'
-  | 'dc'
   | 'vdot'
   | 'arlington'
   | 'pgc'
+  | 'weatherbug'
+  | 'hivis'
   | 'landmark'
   | 'idaho511';
 
@@ -254,7 +255,6 @@ export interface FilterState {
   jurisdictions: Set<Jurisdiction>;  // Which jurisdictions to show
   minSeverity: number;
   showCameras: boolean;
-  showLocationOnlyCameras: boolean;
   showWeather: boolean;
   showCrimeHeatmap: boolean;
   showRadar: boolean;

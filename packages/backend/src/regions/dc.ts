@@ -1,11 +1,12 @@
 import type { RegionPack } from './types.js';
 
 import { mdchartCamerasFetcher } from '../fetchers/mdchart-cameras.js';
-import { dcCamerasFetcher } from '../fetchers/dc-cameras.js';
 import { landmarkWebcamsFetcher } from '../fetchers/landmark-webcams.js';
 import { vdotCamerasFetcher } from '../fetchers/vdot-cameras.js';
 import { arlingtonCamerasFetcher } from '../fetchers/arlington-cameras.js';
 import { pgcCamerasFetcher } from '../fetchers/pgc-cameras.js';
+import { weatherbugCamerasFetcher } from '../fetchers/weatherbug-cameras.js';
+import HivisCamerasFetcher from '../fetchers/hivis-cameras.js';
 import { mdchartIncidentsFetcher } from '../fetchers/mdchart-incidents.js';
 import { dcCrimeFetcher } from '../fetchers/dc-crime.js';
 import { mocoCrimeFetcher } from '../fetchers/moco-crime.js';
@@ -104,13 +105,25 @@ export const dcRegion: RegionPack = {
 
   cameraFetchers: [
     mdchartCamerasFetcher,
-    dcCamerasFetcher,
+    // dcCamerasFetcher was REMOVED (2026-07 camera sweep): the DDOT
+    // dataset is a 2021 pole inventory with zero image URLs — 314 pins
+    // that looked like cameras but linked nowhere. DC-proper street
+    // camera imagery no longer exists publicly (DDOT killed its viewer,
+    // TrafficLand is keyed); weatherbug below is the nearest substitute.
     landmarkWebcamsFetcher,
     // NoVA/county coverage (2026-07 camera sweep): VDOT 511 stills+HLS,
     // Arlington ITS HLS, PG County TRIP HLS.
     vdotCamerasFetcher,
     arlingtonCamerasFetcher,
     pgcCamerasFetcher,
+    // WeatherBug DMV network — the only keyless fresh stills near DC core.
+    weatherbugCamerasFetcher,
+    // USGS river-gauge cams (Rock Creek, Anacostia, Potomac tribs) —
+    // live imagery at the same gauges the flood layer watches.
+    new HivisCamerasFetcher({
+      regionId: 'dc',
+      bounds: { lamin: 38.75, lamax: 39.05, lomin: -77.35, lomax: -76.80 },
+    }),
   ],
 
   trafficIncidentFetchers: [

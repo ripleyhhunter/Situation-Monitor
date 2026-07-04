@@ -12,12 +12,20 @@ const ROSTER_STAMP = new Date().toISOString();
 /**
  * Curated list of landmark webcams in the DC area
  * These are manually maintained since they don't have a unified API
- * 
+ *
+ * Roster refreshed 2026-07-04 (camera coverage sweep — every entry
+ * live-verified): dead cams pruned (old White House YouTube id, three
+ * WeatherBug cams WeatherBug itself removed, the retired FOX5 Fairfax
+ * skycam), the WeatherBug survivors moved to the dedicated `weatherbug`
+ * source (which has real stills), and verified persistent streams added
+ * (earthTV White House, Union Station railcam, National Zoo HLS cams,
+ * FOX5 Prince William Marina, NPS air-quality Mall cam).
+ *
  * Sources:
- * - WeatherBug: Traffic/weather cameras with CDN image URLs
- * - EarthCam: High-quality landmark cameras (page links)
- * - YouTube: 24/7 live streams (embeddable)
- * - FOX 5 DC: Local news station skycams (https://www.fox5dc.com/live-weather-cameras-across-dc-maryland-and-virginia)
+ * - EarthCam: High-quality landmark cameras (page links / YouTube lives)
+ * - YouTube: 24/7 live streams (embeddable in-modal)
+ * - Zoo: Smithsonian National Zoo Wowza HLS (CORS *, plays in-modal)
+ * - FOX 5 DC: Local news station skycams
  * - Official: Government-operated cameras (Senate, NPS)
  * - BloomCam: Seasonal cherry blossom camera
  */
@@ -26,9 +34,10 @@ interface LandmarkWebcam {
   name: string;
   lat: number;
   lng: number;
-  type: 'weatherbug' | 'earthcam' | 'youtube' | 'fox5' | 'official' | 'other';
-  camId?: string; // For WeatherBug cameras
+  type: 'earthcam' | 'youtube' | 'zoo' | 'fox5' | 'official' | 'other';
   youtubeId?: string; // For YouTube embeds
+  hlsUrl?: string; // Direct HLS playlist (plays in-modal via hls.js)
+  imageUrl?: string; // Direct still image, when one exists
   pageUrl: string; // URL to view the webcam
   description?: string;
 }
@@ -55,19 +64,29 @@ const LANDMARK_WEBCAMS: LandmarkWebcam[] = [
     pageUrl: 'https://www.nps.gov/nama/learn/photosmultimedia/webcams.htm',
     description: 'National Park Service webcam from top of Washington Monument',
   },
+  {
+    id: 'nps-mall-ard',
+    name: 'National Mall Air Cam (NPS)',
+    lat: 38.8926,
+    lng: -77.0687,
+    type: 'official',
+    imageUrl: 'https://www.nps.gov/featurecontent/ard/webcams/images/wash.jpg',
+    pageUrl: 'https://www.nps.gov/subjects/air/webcams.htm?site=wash',
+    description: 'NPS Air Resources cam at the Netherlands Carillon looking east over the Mall — updates ~15 min, includes live AQI',
+  },
 
   // ==========================================
-  // YOUTUBE 24/7 LIVE STREAMS (Embeddable)
+  // YOUTUBE 24/7 LIVE STREAMS (Embeddable in-modal)
   // ==========================================
   {
     id: 'yt-whitehouse',
-    name: 'White House Live',
+    name: 'White House Live (earthTV)',
     lat: 38.8977,
     lng: -77.0365,
     type: 'youtube',
-    youtubeId: '2VfLiHHbIkk',
-    pageUrl: 'https://www.youtube.com/live/2VfLiHHbIkk',
-    description: '24/7 live stream of the White House',
+    youtubeId: 'r1K7DyQn3jg',
+    pageUrl: 'https://www.youtube.com/watch?v=r1K7DyQn3jg',
+    description: 'earthTV 24/7 live stream of the White House',
   },
   {
     id: 'yt-fox5-dc',
@@ -78,6 +97,16 @@ const LANDMARK_WEBCAMS: LandmarkWebcam[] = [
     youtubeId: 'lHkebfwmC4U',
     pageUrl: 'https://www.youtube.com/watch?v=lHkebfwmC4U',
     description: 'FOX 5 DC 24/7 live cam - Capitol, monuments, and DC skyline',
+  },
+  {
+    id: 'yt-unionstation',
+    name: 'Union Station Railcam 24/7',
+    lat: 38.8973,
+    lng: -77.0063,
+    type: 'youtube',
+    youtubeId: '0Q1pN-KpNZc',
+    pageUrl: 'https://www.youtube.com/watch?v=0Q1pN-KpNZc',
+    description: 'Capitol Rail Watch 24/7 railcam - Amtrak, Acela, MARC, WMATA at Union Station',
   },
 
   // ==========================================
@@ -130,15 +159,6 @@ const LANDMARK_WEBCAMS: LandmarkWebcam[] = [
     description: 'Capital Wheel, Wilson Bridge, Alexandria views',
   },
   {
-    id: 'fox5-fairfax',
-    name: 'Downtown Fairfax, VA',
-    lat: 38.8462,
-    lng: -77.3064,
-    type: 'fox5',
-    pageUrl: 'https://www.fox5dc.com/live-weather-cameras-across-dc-maryland-and-virginia',
-    description: 'Main St/University Dr area in Fairfax City',
-  },
-  {
     id: 'fox5-reston',
     name: 'Reston, VA',
     lat: 38.9586,
@@ -153,8 +173,17 @@ const LANDMARK_WEBCAMS: LandmarkWebcam[] = [
     lat: 39.0066,
     lng: -77.4622,
     type: 'fox5',
-    pageUrl: 'https://www.fox5dc.com/live-weather-cameras-across-dc-maryland-and-virginia',
+    pageUrl: 'https://www.fox5dc.com/fox-5-skycam-loudoun-station-va',
     description: 'Ashburn/Dulles corridor (sponsored by Bryce Resort)',
+  },
+  {
+    id: 'fox5-pwmarina',
+    name: 'Prince William Marina - Woodbridge',
+    lat: 38.634,
+    lng: -77.261,
+    type: 'fox5',
+    pageUrl: 'https://www.fox5dc.com/fox-5-skycam-prince-william-marina',
+    description: 'Occoquan River marina, southern DMV coverage',
   },
 
   // ==========================================
@@ -162,12 +191,15 @@ const LANDMARK_WEBCAMS: LandmarkWebcam[] = [
   // ==========================================
   {
     id: 'ec-monument',
-    name: 'Washington Monument View',
+    name: 'Washington Monument View (EarthCam)',
     lat: 38.8895,
     lng: -77.0353,
-    type: 'earthcam',
-    pageUrl: 'https://www.earthcam.com/usa/dc/washingtonmonument/?cam=wamo',
-    description: 'Live HD cam from top of Washington Monument',
+    type: 'youtube',
+    // EarthCam runs this as a persistent YouTube live — plays in-modal,
+    // strictly better than the page link-out it replaced.
+    youtubeId: 'oDCAAfOSqvA',
+    pageUrl: 'https://www.youtube.com/watch?v=oDCAAfOSqvA',
+    description: 'EarthCam live HD view of the Washington Monument',
   },
   {
     id: 'ec-cherry',
@@ -198,67 +230,57 @@ const LANDMARK_WEBCAMS: LandmarkWebcam[] = [
   },
 
   // ==========================================
-  // WEATHERBUG CAMERAS (Traffic/Weather)
+  // SMITHSONIAN NATIONAL ZOO (Wowza HLS, CORS * — plays in-modal)
   // ==========================================
   {
-    id: 'wb-lincoln',
-    name: 'Lincoln Memorial View',
-    lat: 38.8893,
-    lng: -77.0502,
-    type: 'weatherbug',
-    camId: 'MOWDC',
-    pageUrl: 'https://www.weatherbug.com/weather-camera/?cam=MOWDC',
-    description: 'View across Potomac toward Arlington from Salamander Hotel',
+    id: 'zoo-panda',
+    name: 'National Zoo - Panda Cam',
+    lat: 38.9286,
+    lng: -77.0524,
+    type: 'zoo',
+    hlsUrl: 'https://nzp-wowza01.si.edu/live_edge_panda25/smil:panda125_01.smil/playlist.m3u8',
+    pageUrl: 'https://nationalzoo.si.edu/webcams/panda-cam',
+    description: 'Smithsonian National Zoo giant panda habitat',
   },
   {
-    id: 'wb-wjla1',
-    name: 'Arlington Route 50',
-    lat: 38.8816,
-    lng: -77.1147,
-    type: 'weatherbug',
-    camId: 'WJLAW',
-    pageUrl: 'https://www.weatherbug.com/weather-camera/?cam=WJLAW',
-    description: 'WJLA camera overlooking Route 50 in Arlington',
+    id: 'zoo-elephant',
+    name: 'National Zoo - Elephant Cam',
+    lat: 38.9301,
+    lng: -77.0509,
+    type: 'zoo',
+    hlsUrl: 'https://nzp-wowza01.si.edu/live_edge_elephant_zixi/elephant_zixi.smil/playlist.m3u8',
+    pageUrl: 'https://nationalzoo.si.edu/webcams/elephant-cam',
+    description: 'Smithsonian National Zoo Elephant Trails',
   },
   {
-    id: 'wb-wjla2',
-    name: 'National Cathedral Area',
-    lat: 38.9304,
-    lng: -77.0706,
-    type: 'weatherbug',
-    camId: 'WJLAB',
-    pageUrl: 'https://www.weatherbug.com/weather-camera/?cam=WJLAB',
-    description: 'WJLA Tower 2 - Wisconsin Ave/Cathedral area',
+    id: 'zoo-lion',
+    name: 'National Zoo - Lion Cam',
+    lat: 38.9294,
+    lng: -77.0489,
+    type: 'zoo',
+    hlsUrl: 'https://nzp-wowza01.si.edu/live_edge_lion/smil:lion01_all.smil/playlist.m3u8',
+    pageUrl: 'https://nationalzoo.si.edu/webcams/lion-cam',
+    description: 'Smithsonian National Zoo lion habitat',
   },
   {
-    id: 'wb-pentagon',
-    name: 'Pentagon City Traffic',
-    lat: 38.8633,
-    lng: -77.0592,
-    type: 'weatherbug',
-    camId: 'RCPCA',
-    pageUrl: 'https://www.weatherbug.com/weather-camera/?cam=RCPCA',
-    description: 'Route 395/Washington Blvd near Pentagon',
+    id: 'zoo-molerat',
+    name: 'National Zoo - Naked Mole-Rat Cam',
+    lat: 38.929,
+    lng: -77.05,
+    type: 'zoo',
+    hlsUrl: 'https://nzp-wowza01.si.edu/live_edge_nmr_02/nmr_02_1080_all.smil/playlist.m3u8',
+    pageUrl: 'https://nationalzoo.si.edu/webcams/naked-mole-rat-cam',
+    description: 'Smithsonian National Zoo naked mole-rat colony',
   },
   {
-    id: 'wb-nationals',
-    name: 'Nationals Park',
-    lat: 38.8730,
-    lng: -77.0074,
-    type: 'weatherbug',
-    camId: 'WSHNP',
-    pageUrl: 'https://www.weatherbug.com/weather-camera/?cam=WSHNP',
-    description: 'View of Nationals Park stadium',
-  },
-  {
-    id: 'wb-harbor',
-    name: 'National Harbor (WeatherBug)',
-    lat: 38.7824,
-    lng: -77.0167,
-    type: 'weatherbug',
-    camId: 'NTNLH',
-    pageUrl: 'https://www.weatherbug.com/weather-camera/?cam=NTNLH',
-    description: 'National Harbor waterfront area',
+    id: 'zoo-ferret',
+    name: 'National Zoo - Ferret Cam',
+    lat: 38.9298,
+    lng: -77.0517,
+    type: 'zoo',
+    hlsUrl: 'https://nzp-wowza01.si.edu/live_edge_bff_01/bff_01_1080_all.smil/playlist.m3u8',
+    pageUrl: 'https://nationalzoo.si.edu/webcams/black-footed-ferret-cam',
+    description: 'Smithsonian National Zoo black-footed ferret den',
   },
 
   // ==========================================
@@ -282,7 +304,6 @@ export class LandmarkWebcamsFetcher extends BaseFetcher<Camera> {
 
   protected async fetchFromApi(): Promise<Camera[]> {
     // This is a static list, but we format it as cameras
-    // and generate current image URLs for WeatherBug cams
     const cameras: Camera[] = LANDMARK_WEBCAMS.map((webcam) => {
       const streamUrl = this.getStreamUrl(webcam);
 
@@ -296,7 +317,7 @@ export class LandmarkWebcamsFetcher extends BaseFetcher<Camera> {
         regionId: 'dc',
         source: 'landmark' as const,
         streamUrl,
-        imageUrl: undefined, // Most require page visit
+        imageUrl: webcam.imageUrl,
         lastUpdated: ROSTER_STAMP,
       };
     });
@@ -309,22 +330,24 @@ export class LandmarkWebcamsFetcher extends BaseFetcher<Camera> {
       LANDMARK_WEBCAMS.filter(w => w.type === 'fox5').length
     }, earthcam: ${
       LANDMARK_WEBCAMS.filter(w => w.type === 'earthcam').length
-    }, weatherbug: ${
-      LANDMARK_WEBCAMS.filter(w => w.type === 'weatherbug').length
+    }, zoo: ${
+      LANDMARK_WEBCAMS.filter(w => w.type === 'zoo').length
     })`);
-    
+
     return cameras;
   }
 
   /**
-   * Get the best stream URL for a webcam
-   * For YouTube cameras, returns embeddable YouTube URL
-   * For others, returns the page URL
+   * Get the best stream URL for a webcam:
+   * YouTube watch URL (embeds in-modal) > direct HLS playlist (plays
+   * in-modal via hls.js) > page link-out.
    */
   private getStreamUrl(webcam: LandmarkWebcam): string {
     if (webcam.type === 'youtube' && webcam.youtubeId) {
-      // Return YouTube watch URL (can be embedded)
       return `https://www.youtube.com/watch?v=${webcam.youtubeId}`;
+    }
+    if (webcam.hlsUrl) {
+      return webcam.hlsUrl;
     }
     return webcam.pageUrl;
   }

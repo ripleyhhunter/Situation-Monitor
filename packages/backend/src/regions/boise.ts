@@ -11,6 +11,7 @@ import { NwsGaugesFetcher } from '../fetchers/nws-gauges.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
 import { idaho511CamerasFetcher } from '../fetchers/idaho511-cameras.js';
 import { idaho511EventsFetcher } from '../fetchers/idaho511-events.js';
+import HivisCamerasFetcher from '../fetchers/hivis-cameras.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -121,7 +122,13 @@ export const boiseRegion: RegionPack = {
   // events once cleared, so absence implies the scene is closed.
   sourcesWithCompleteListing: ['itd-wzdx', 'achd', 'wfigs', 'nws-gauge', 'usgs-quake', 'itd-events'],
 
-  cameraFetchers: [boiseLandmarkWebcamsFetcher, idaho511CamerasFetcher],
+  cameraFetchers: [
+    boiseLandmarkWebcamsFetcher,
+    idaho511CamerasFetcher,
+    // USGS river-gauge cams — live imagery at Boise River gauges (same
+    // nationwide roster as DC's; honestly empty if none in the valley).
+    new HivisCamerasFetcher({ regionId: 'boise', bounds: TREASURE_VALLEY_BOUNDS }),
+  ],
   // idaho511EventsFetcher rides the 1-min traffic cron: live crashes /
   // Waze hazard reports need freshness the 5-15 min profiles can't give.
   trafficIncidentFetchers: [itdWzdx, achdClosuresFetcher, idaho511EventsFetcher],
