@@ -3,6 +3,7 @@ import type { RegionPack } from './types.js';
 import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { bpdCrimeFetcher } from '../fetchers/bpd-crime.js';
 import { ItdWzdxFetcher } from '../fetchers/itd-wzdx.js';
+import { WildfireFetcher } from '../fetchers/wildfire.js';
 import { boiseLandmarkWebcamsFetcher } from '../fetchers/boise-landmark-webcams.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
@@ -64,6 +65,14 @@ const boisePulsePoint = new PulsePointFetcher({
 
 const itdWzdx = new ItdWzdxFetcher({ bounds: TREASURE_VALLEY_BOUNDS });
 
+// Wildfire awareness envelope: SW Idaho / eastern Oregon border country,
+// much wider than the Treasure Valley — a large fire 100 km out still
+// matters here (smoke, evacuations, I-84 closures).
+const boiseWildfire = new WildfireFetcher({
+  regionId: 'boise',
+  bounds: { lamin: 42.5, lamax: 45.0, lomin: -117.5, lomax: -114.5 },
+});
+
 export const boiseRegion: RegionPack = {
   id: 'boise',
   name: 'Boise, ID',
@@ -79,13 +88,14 @@ export const boiseRegion: RegionPack = {
   nwsZones: BOISE_NWS_ZONES,
 
   // ITD WZDx publishes complete state snapshots — absence implies cleared.
-  sourcesWithCompleteListing: ['itd-wzdx'],
+  // WFIGS "Current" removes fires once contained/out — same semantics.
+  sourcesWithCompleteListing: ['itd-wzdx', 'wfigs'],
 
   cameraFetchers: [boiseLandmarkWebcamsFetcher],
   trafficIncidentFetchers: [itdWzdx],
   crimeFetchers: [bpdCrimeFetcher],
   shotspotterFetchers: [],
-  emergencyAlertFetchers: [],
+  emergencyAlertFetchers: [boiseWildfire],
 
   pulsePointFetcher: boisePulsePoint,
   // Valley Regional Transit publishes only GTFS-realtime protobuf (no JSON
