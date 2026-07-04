@@ -54,6 +54,15 @@ describe('normalizeVdotCamera', () => {
   it('drops rows without geometry', () => {
     expect(normalizeVdotCamera({ ...vdotRow, geometry: undefined })).toBeNull();
   });
+
+  it('drops Arlington-jurisdiction relays of the county ITS cameras', () => {
+    expect(
+      normalizeVdotCamera({
+        ...vdotRow,
+        properties: { ...vdotRow.properties, jurisdiction: 'Arlington County' },
+      }),
+    ).toBeNull();
+  });
 });
 
 const arlingtonRow: ArlingtonCameraRow = {
@@ -92,9 +101,11 @@ describe('normalizeArlingtonCamera', () => {
   });
 });
 
+// Live shape: the id lives in properties, NOT at the feature level —
+// the top-level `feature.id ?? props.id` fallback exists for robustness.
 const pgcRow: PgcCameraFeature = {
-  id: 1716,
   properties: {
+    id: 1716,
     name: 'Marlboro Pike @ Forestville Rd.',
     cameraOwner: 'PG County',
     views: [{ url: 'https://s57.us-east-1.skyvdn.com:443/rtplive/cam007/playlist.m3u8', broken: false }],

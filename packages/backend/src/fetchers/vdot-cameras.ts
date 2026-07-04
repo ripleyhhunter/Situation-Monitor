@@ -37,6 +37,7 @@ export interface VdotCameraFeature {
     active?: boolean;
     image_url?: string | null;
     https_url?: string | null;
+    jurisdiction?: string | null;
   };
   geometry?: { type?: string; coordinates?: number[] };
 }
@@ -55,6 +56,12 @@ export function vdotSnapshotUrl(imageUrl: string | null | undefined): string | u
 export function normalizeVdotCamera(feature: VdotCameraFeature): Camera | null {
   const props = feature.properties;
   if (!props || props.active !== true || props.id == null) return null;
+
+  // VDOT's 'Arlington County' rows are RELAYS of the county's own ITS
+  // cameras (verified: identical coordinates and names vs the Arlington
+  // ArcGIS roster) — the county source is the origin, so the relay is
+  // dropped here, same as the CHARTFeed dedupe in pgc-cameras.
+  if (/arlington/i.test(props.jurisdiction ?? '')) return null;
 
   const coords = feature.geometry?.coordinates;
   if (!Array.isArray(coords) || coords.length < 2) return null;

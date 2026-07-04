@@ -28,8 +28,13 @@
   function hlsPlay(node: HTMLVideoElement, url: string | undefined) {
     let hls: { destroy(): void } | null = null;
     let cancelled = false;
+    // Generation token: an update() racing a still-pending import must
+    // orphan the older start, or two Hls instances attach to one video
+    // and the loser leaks (keeps fetching segments, undestroyable).
+    let generation = 0;
 
     const start = async (streamUrl: string | undefined) => {
+      const gen = ++generation;
       if (!streamUrl) return;
       if (node.canPlayType('application/vnd.apple.mpegurl')) {
         node.src = streamUrl;
@@ -39,7 +44,7 @@
       try {
         const mod = await import('hls.js');
         const Hls = mod.default;
-        if (cancelled) return;
+        if (cancelled || gen !== generation) return;
         if (!Hls.isSupported()) {
           hlsFailed = true;
           return;
