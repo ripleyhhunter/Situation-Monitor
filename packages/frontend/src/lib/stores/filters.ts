@@ -8,7 +8,6 @@ const defaultFilters: FilterState = {
   jurisdictions: new Set(['dc', 'montgomery', 'pg']), // All jurisdictions enabled by default
   minSeverity: 1,
   showCameras: true,
-  showLocationOnlyCameras: false, // Hide DC cameras (no image/stream) by default
   showWeather: true,
   showCrimeHeatmap: false, // Toggle between markers and heatmap for crime data
   showRadar: false, // Precipitation radar overlay off by default
@@ -78,11 +77,6 @@ export function setMinSeverity(severity: number): void {
 // Toggle cameras visibility
 export function toggleCameras(): void {
   filters.update((f) => ({ ...f, showCameras: !f.showCameras }));
-}
-
-// Toggle location-only cameras visibility
-export function toggleLocationOnlyCameras(): void {
-  filters.update((f) => ({ ...f, showLocationOnlyCameras: !f.showLocationOnlyCameras }));
 }
 
 // Toggle weather visibility

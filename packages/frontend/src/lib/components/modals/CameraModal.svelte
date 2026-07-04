@@ -144,6 +144,10 @@
             Source: Arlington County ITS &bull; Live video
           {:else if camera.source === 'pgc'}
             Source: Prince George's County TRIP &bull; Live video
+          {:else if camera.source === 'weatherbug'}
+            Source: WeatherBug &bull; Live still — refreshes every 5-15 min
+          {:else if camera.source === 'hivis'}
+            Source: USGS HIVIS &bull; River-gauge still — refreshes ~15 min
           {:else}
             <!-- lastUpdated is a roster stamp, not an image age — showing
                  "Updated 3 days ago" over a live thumbnail misleads. -->
@@ -217,18 +221,6 @@
             <p class="text-sm">Camera feed unavailable</p>
           </div>
         </div>
-      {:else if camera.source === 'dc'}
-        <!-- DC cameras don't have direct feeds -->
-        <div class="w-full h-full flex items-center justify-center text-gray-400">
-          <div class="text-center p-4">
-            <svg class="w-16 h-16 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
-            </svg>
-            <p class="text-sm mb-2">DC camera feeds are not publicly available</p>
-            <p class="text-xs text-gray-500">The DDOT traffic viewer is currently offline.</p>
-            <p class="text-xs text-gray-500 mt-1">Try WeatherBug for nearby camera views.</p>
-          </div>
-        </div>
       {:else if camera.source === 'landmark' && !camera.imageUrl}
         <!-- Landmark cameras without direct images (EarthCam, YouTube, etc) -->
         <div class="w-full h-full flex items-center justify-center text-gray-300">
@@ -278,7 +270,7 @@
       <div class="flex items-center justify-between">
         <div class="text-sm text-gray-600 dark:text-gray-400">
           <p>Location: {camera.location.lat.toFixed(4)}, {camera.location.lng.toFixed(4)}</p>
-          <p class="text-xs mt-1">Source: {camera.source === 'dc' ? 'DC DDOT' : camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source === 'idaho511' ? 'Idaho 511 / ITD' : camera.source === 'vdot' ? 'VDOT 511 Virginia' : camera.source === 'arlington' ? 'Arlington County ITS' : "Prince George's County TRIP"}</p>
+          <p class="text-xs mt-1">Source: {camera.source === 'mdchart' ? 'MD CHART' : camera.source === 'landmark' ? 'Landmark Webcam' : camera.source === 'idaho511' ? 'Idaho 511 / ITD' : camera.source === 'vdot' ? 'VDOT 511 Virginia' : camera.source === 'arlington' ? 'Arlington County ITS' : camera.source === 'weatherbug' ? 'WeatherBug' : camera.source === 'hivis' ? 'USGS river-gauge cam' : "Prince George's County TRIP"}</p>
         </div>
         <div class="flex gap-2">
           {#if camera.imageUrl}
@@ -291,16 +283,7 @@
               Open Image
             </a>
           {/if}
-          {#if camera.source === 'dc'}
-            <a
-              href="https://www.weatherbug.com/traffic-cam/washington-dc-20001"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              WeatherBug Cams
-            </a>
-          {:else if camera.source === 'landmark' && camera.streamUrl}
+          {#if camera.source === 'landmark' && camera.streamUrl && !isHls}
             <a
               href={camera.streamUrl}
               target="_blank"

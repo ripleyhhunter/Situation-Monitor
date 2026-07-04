@@ -64,13 +64,15 @@ export interface Incident {
   metadata: Record<string, unknown>;
 }
 
-// Camera types
+// Camera types ('dc' was removed 2026-07: the DDOT dataset is a feedless
+// 2021 pole inventory — see the camera sweep in docs/CATALOG-2026-07.md)
 export type CameraSource =
   | 'mdchart'
-  | 'dc'
   | 'vdot'       // VDOT 511 Virginia (NoVA stills + HLS)
   | 'arlington'  // Arlington County ITS (HLS)
   | 'pgc'        // Prince George's County TRIP (HLS)
+  | 'weatherbug' // WeatherBug DMV network (fresh stills)
+  | 'hivis'      // USGS river-gauge webcams (stills, both regions)
   | 'landmark'
   | 'idaho511';
 

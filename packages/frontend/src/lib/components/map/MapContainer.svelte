@@ -590,9 +590,8 @@
   function buildCameraMarker(camera: Camera): Leaflet.Marker {
     // Different styles for landmark vs traffic cameras
     const isLandmark = camera.source === 'landmark';
-    const isDC = camera.source === 'dc';
 
-    const markerClass = isLandmark ? 'landmark-marker' : isDC ? 'dc-camera-marker' : 'camera-marker';
+    const markerClass = isLandmark ? 'landmark-marker' : 'camera-marker';
     const svgIcon = isLandmark
       ? '<path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><circle cx="12" cy="11" r="3"/>' // Map pin
       : '<path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>'; // Camera
@@ -1001,7 +1000,6 @@
 
   /* Camera marker styles */
   :global(.camera-marker),
-  :global(.dc-camera-marker),
   :global(.landmark-marker) {
     border-radius: 4px;
     display: flex;
@@ -1011,7 +1009,6 @@
   }
 
   :global(.camera-marker:hover),
-  :global(.dc-camera-marker:hover),
   :global(.landmark-marker:hover) {
     transform: scale(1.15);
   }

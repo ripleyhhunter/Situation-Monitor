@@ -29,7 +29,6 @@ function freshFilters(): FilterState {
     jurisdictions: new Set(['dc', 'montgomery', 'pg']),
     minSeverity: 1,
     showCameras: true,
-    showLocationOnlyCameras: false,
     showWeather: true,
     showCrimeHeatmap: false,
     showRadar: false,

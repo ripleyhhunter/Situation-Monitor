@@ -33,9 +33,6 @@
     {
       maxDistance: NEARBY_CAMERA_CONFIG.maxDistance,
       maxResults: NEARBY_CAMERA_CONFIG.maxResults,
-      // Exclude DC cameras which have no public feed
-      // Include cameras that have either imageUrl or streamUrl
-      filter: (camera) => camera.source !== 'dc' || Boolean(camera.imageUrl || camera.streamUrl),
     }
   );
 
@@ -61,10 +58,11 @@
   function getCameraSourceLabel(source: string): string {
     const labels: Record<string, string> = {
       mdchart: 'MD Traffic',
-      dc: 'DC DOT',
       vdot: 'VA Traffic',
       arlington: 'Arlington ITS',
       pgc: 'PG County',
+      weatherbug: 'WeatherBug',
+      hivis: 'USGS River Cam',
       landmark: 'Webcam',
       idaho511: 'Idaho 511',
     };
