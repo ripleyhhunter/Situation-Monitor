@@ -11,11 +11,16 @@ to every SSE client, and the frontend picks which region to surface (header
 switcher, persisted in localStorage). The `REGION` / `PUBLIC_REGION` env vars
 only set the *default/initial* selection. Current regions:
 
-- **`dc`** — Washington, DC + DMV (PulsePoint EMS1205, MD CHART, DC Open Data, WMATA, AlertDC, ShotSpotter, MoCo/PG crime)
-- **`boise`** — Boise / Ada County / Treasure Valley (PulsePoint EMS1169 ACCESS, BPD Crimes ArcGIS, ITD WZDx work zones, NWS Boise webcams)
+- **`dc`** — Washington, DC + DMV (PulsePoint EMS1205, MD CHART, MDOT WZDx,
+  VDOT NoVA feeds, DC Open Data, DC 311, WMATA, AlertDC, ShotSpotter,
+  MoCo/PG crime, OpenMHz DC Fire & EMS scanner audio)
+- **`boise`** — Boise / Ada County / Treasure Valley (PulsePoint EMS1169
+  ACCESS, BPD Crimes ArcGIS, Ada County CrimeMapper, ITD WZDx + ACHD RITA
+  roadwork, Idaho 511 cameras, NWS Boise webcams)
 
 Shared (region-agnostic) fetchers: NWS weather alerts, Open-Meteo current
-conditions, AirNow, OpenSky aircraft, news RSS. Each is instantiated
+conditions, AirNow, OpenSky aircraft, news RSS, NIFC WFIGS wildfires, USGS
+earthquakes, NWS river gauges. Each is instantiated
 per-region by the pack file with the region's config (zones, timezone, bbox,
 feeds) passed to its constructor — no fetcher reads a global region.
 
@@ -118,8 +123,12 @@ npm run test             # vitest run (stores/utils unit tests)
 External APIs → Fetchers (node-cron scheduled, per region) → Normalizers
   → in-memory region state (+ Redis snapshot of active incidents) → SSE Broadcast → Frontend
 ```
-There is no durable database: `database.ts` is an in-memory mirror, and the
-only restart persistence is the Redis `incidents:active:<region>` snapshot.
+`database.ts` is an in-memory mirror; durable storage is
+`services/history.ts` (SQLite via better-sqlite3, `data/history.db`,
+180-day retention): every incident is journaled there, `/api/history/*`
+serves trend aggregates, and on startup active incidents restore from the
+Redis `incidents:active:<region>` snapshot or — when Redis is absent —
+from SQLite.
 
 ### Key Files
 
@@ -129,10 +138,11 @@ only restart persistence is the Redis `incidents:active:<region>` snapshot.
 | `src/services/aggregator.ts` | Orchestrates all fetchers per region, manages state, cleanup sweeps, SSE broadcasting |
 | `src/services/scheduler.ts` | Cron-based job scheduling |
 | `src/services/sse.ts` | Server-Sent Events broadcasting + per-client aircraft-region preferences |
-| `src/services/database.ts` | In-memory Map mirror (NOT SQLite — no durable persistence) |
+| `src/services/database.ts` | In-memory Map mirror (fast lookups only) |
+| `src/services/history.ts` | Durable SQLite incident history (better-sqlite3): trends aggregates + Redis-less restart restore |
 | `src/services/geocache.ts` | Region-scoped Nominatim geocoding with Redis-persisted cache |
 | `src/regions/dc.ts`, `src/regions/boise.ts` | **The authoritative fetcher registry** — aggregator imports no fetchers itself |
-| `src/fetchers/*.ts` | Individual API integrations (22 modules; 19 wired in dc.ts, 9 in boise.ts) |
+| `src/fetchers/*.ts` | Individual API integrations (~30 modules — the region packs are the authoritative wiring list) |
 | `src/routes/*.ts` | Express route handlers (health, incidents, cameras, weather, aqi, news, events) |
 | `src/middleware/cors.ts` | Production CORS allowlist; dev is wide-open |
 
@@ -173,7 +183,7 @@ modules exist; the table below covers the notable ones.
 | `opensky.ts` | OpenSky Network | Aircraft positions | varies | OAuth2 (`OPENSKY_CLIENT_ID`/`SECRET`); gated by per-client `wantsAircraft` preference |
 | `news.ts` | RSS feeds | News items | varies | rss-parser |
 
-The frontend SSE client handles event types `incident:new/update/clear`, `camera:update`, `weather:alert/clear/current`, `aqi:update`, `aircraft:update`, `news:update`, plus `connected`/`heartbeat`. See `packages/frontend/src/lib/services/sse.ts`.
+The frontend SSE client handles event types `incident:new/update/clear`, `camera:update`, `weather:alert/clear/current`, `aqi:update`, `aircraft:update`, `news:update`, `scanner:update`, plus `connected`/`heartbeat`. See `packages/frontend/src/lib/services/sse.ts`.
 
 ### Camera Sources (landmark-webcams.ts)
 
@@ -197,6 +207,8 @@ The frontend SSE client handles event types `incident:new/update/clear`, `camera
 | `GET /api/aqi` | Air quality data |
 | `GET /api/news` | News items |
 | `GET /api/news/related/:incidentId` | News related to one incident (region-aware) |
+| `GET /api/history/summary?region=&days=` | Daily incident counts by type (SQLite history) |
+| `GET /api/history/hourly?region=&hours=` | Hourly incident counts by type |
 
 ### Environment Variables
 Copy `.env.example` to `.env` — it is the authoritative, commented reference.
@@ -260,7 +272,10 @@ Deploy details:
 4. Register it in the region pack (`regions/dc.ts` / `regions/boise.ts`) in
    the fetcher array matching its scheduling profile. If the feed is a
    complete snapshot, declare `readonly incidentSource = '<source>' as const`
-   and add the source to the pack's `sourcesWithCompleteListing`.
+   and add the source to the pack's `sourcesWithCompleteListing`. If the
+   records are ongoing situations (work zones, active fires) rather than
+   point-in-time events, set `metadata.ongoing = true` so the frontend's
+   event-time filter doesn't hide them.
 5. Update `packages/backend/src/types/index.ts` if new types needed (add the
    `DataSource` value)
 6. Add SSE event handler in frontend `src/lib/services/sse.ts`
