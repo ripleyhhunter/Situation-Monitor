@@ -11,7 +11,7 @@
   import { selectedRegion } from '$stores/region';
   import { getSeverityColor, getIncidentTypeColor } from '$utils/format';
   import { getAgeBasedOpacity, isFreshIncident } from '$utils/time';
-  import { fetchRadarFrame } from '$services/radar';
+  import { fetchRadarFrame, type RadarFrameInfo } from '$services/radar';
   import type { Incident, Camera, WeatherAlert, Aircraft } from '$types';
   import type * as Leaflet from 'leaflet';
 
@@ -50,7 +50,23 @@
   let radarLayer: Leaflet.TileLayer | null = null;
   let radarRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let radarTemplate = '';
+  let radarSource: 'rainviewer' | 'iem' | null = null;
   let radarAddInFlight = false;
+  let radarRefreshInFlight = false;
+
+  function createRadarLayer(frame: RadarFrameInfo): void {
+    if (!map || !L) return;
+    radarTemplate = frame.tileTemplate;
+    radarSource = frame.source;
+    radarLayer = L.tileLayer(frame.tileTemplate, {
+      opacity: 0.6,
+      // RainViewer's native pyramid tops out at z7 (Leaflet upscales
+      // beyond); IEM serves native tiles much deeper.
+      maxNativeZoom: frame.source === 'rainviewer' ? 7 : 12,
+      maxZoom: 19,
+      attribution: frame.attribution,
+    }).addTo(map);
+  }
 
   async function addRadarLayer(): Promise<void> {
     if (!map || !L || radarLayer || radarAddInFlight) return;
@@ -59,14 +75,7 @@
       const frame = await fetchRadarFrame();
       // The toggle may have flipped off while the index was in flight.
       if (!map || !L || radarLayer || !$filters.showRadar) return;
-      radarTemplate = frame.tileTemplate;
-      radarLayer = L.tileLayer(frame.tileTemplate, {
-        opacity: 0.6,
-        // RainViewer tiles top out at native zoom 7 — Leaflet upscales beyond.
-        maxNativeZoom: 7,
-        maxZoom: 19,
-        attribution: frame.attribution,
-      }).addTo(map);
+      createRadarLayer(frame);
       radarRefreshTimer = setInterval(() => void refreshRadarFrame(), RADAR_REFRESH_MS);
     } finally {
       radarAddInFlight = false;
@@ -74,12 +83,25 @@
   }
 
   async function refreshRadarFrame(): Promise<void> {
-    if (!radarLayer) return;
-    const frame = await fetchRadarFrame();
-    if (!radarLayer) return; // toggled off while fetching
-    if (frame.tileTemplate !== radarTemplate) {
-      radarTemplate = frame.tileTemplate;
-      radarLayer.setUrl(frame.tileTemplate);
+    const layer = radarLayer;
+    if (!layer || radarRefreshInFlight) return;
+    radarRefreshInFlight = true;
+    try {
+      const frame = await fetchRadarFrame();
+      // Bail if the layer was removed OR replaced while fetching — applying
+      // a stale frame to a newer layer would regress it for a full cycle.
+      if (radarLayer !== layer || !map) return;
+      if (frame.source !== radarSource) {
+        // Attribution and zoom tuning are per-source — rebuild the layer.
+        map.removeLayer(layer);
+        radarLayer = null;
+        createRadarLayer(frame);
+      } else if (frame.tileTemplate !== radarTemplate) {
+        radarTemplate = frame.tileTemplate;
+        layer.setUrl(frame.tileTemplate);
+      }
+    } finally {
+      radarRefreshInFlight = false;
     }
   }
 
@@ -93,6 +115,7 @@
     }
     radarLayer = null;
     radarTemplate = '';
+    radarSource = null;
   }
 
   onMount(async () => {

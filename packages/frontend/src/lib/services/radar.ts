@@ -72,7 +72,12 @@ export function pickNewestFrame(index: RainViewerIndex): RainViewerFrame | null 
  */
 export async function fetchRadarFrame(): Promise<RadarFrameInfo> {
   try {
-    const response = await fetch(RAINVIEWER_INDEX_URL, { headers: { Accept: 'application/json' } });
+    // Timeout matters: a hung (never-settling) fetch would otherwise wedge
+    // the caller's in-flight guard and silently kill the toggle.
+    const response = await fetch(RAINVIEWER_INDEX_URL, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
     if (!response.ok) throw new Error(`RainViewer index HTTP ${response.status}`);
     const index = (await response.json()) as RainViewerIndex;
     const frame = pickNewestFrame(index);
