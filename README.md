@@ -2,8 +2,10 @@
 
 Real-time situation monitoring dashboard. Aggregates Fire/EMS incidents, traffic, crime, weather alerts, air quality, aircraft, news, and live cameras onto a unified map-based interface — for multiple regions, switchable at runtime:
 
-- **Washington, DC + DMV** — PulsePoint Fire/EMS, MD CHART traffic, DC Open Data crime & ShotSpotter, Montgomery/Prince George's County crime, WMATA Metro alerts, AlertDC emergencies
-- **Boise / Treasure Valley** — PulsePoint (Ada County ACCESS) Fire/EMS, Boise PD crime, ITD work zones, regional webcams
+- **Washington, DC + DMV** — PulsePoint Fire/EMS, MD CHART traffic, MDOT work zones, VDOT Northern-Virginia incidents, DC Open Data crime & ShotSpotter, Montgomery/Prince George's County crime, DC 311 situational requests, WMATA Metro alerts, AlertDC emergencies, DC Fire & EMS scanner audio
+- **Boise / Treasure Valley** — PulsePoint (Ada County ACCESS) Fire/EMS, Boise PD + Ada County crime, ITD & ACHD roadwork, 234 Idaho 511 traffic cameras, regional webcams
+
+Both regions also carry wildfire (NIFC WFIGS), earthquake (USGS), river flood-gauge (NWS), weather, air-quality, aircraft, and news layers, plus a precipitation-radar overlay.
 
 The backend fetches **all** regions concurrently; the header switcher picks which one you see (persisted in localStorage).
 
@@ -14,24 +16,36 @@ The backend fetches **all** regions concurrently; the header switcher picks whic
 - **Live updates** — Server-Sent Events: full snapshot on connect, deltas afterward, automatic reconnect with a heartbeat watchdog
 - **Region switcher** — DC ⇄ Boise without a rebuild
 - **Address search** — Nominatim geocoding scoped to the active region
-- **Filtering** — incident type, severity, time range (1h/6h/24h/all), DC jurisdictions
+- **Filtering** — incident type, severity, time range (1h/6h/24h/all), DC jurisdictions; ongoing situations (work zones, active fires, flood gauges) stay visible regardless of the time window
+- **Desktop notifications** — opt-in alerts for new incidents and severe weather in the selected region, with critical-only and near-my-location (radius) modes
+- **Precipitation radar** — RainViewer tile overlay (IEM fallback), refreshed every 5 minutes
+- **Trends** — 24-hour sparkline, 7-day bars, and by-type counts from the durable SQLite history
+- **Scanner audio** — recent DC Fire & EMS radio calls playable in the scanner panel (OpenMHz)
+- **Installable PWA** — manifest + service worker; live data always bypasses the cache
 
 ### Data sources (DC)
 | Type | Source | Interval | Notes |
 |------|--------|----------|-------|
 | 🔥 Fire/EMS | PulsePoint (DC FEMS) | 2 min | Headless-browser scrape; runs only while clients are connected |
 | 🚗 Traffic | MD CHART + DC HSEMA | 1 min | Crashes, closures, construction |
+| 🚧 Work zones | MDOT WZDx (via RITIS) | 1 min | Lane-level Maryland work zones, DC-metro bbox |
+| 🚗 NoVA incidents | VDOT 511 layer feeds | 1 min | Arlington/Alexandria/Fairfax crashes + construction |
 | 🔫 Crime | DC + MoCo + PG Open Data | 15 min | Last 30 days |
 | 💥 ShotSpotter | DC Open Data | 5 min | Last 30 days (upstream feed currently stale) |
 | 🚨 Major alerts | AlertDC | 2 min | Fires, hazmat, emergencies |
+| 🛠️ 311 situational | DC 311 (ArcGIS) | 2 min | Signals out, wires down, flooding, downed trees — near-real-time |
 | 🚇 Metro | WMATA API | 30 sec | Requires free API key |
+| 🎙️ Scanner audio | OpenMHz (DC Fire & EMS) | 5 min | Recent radio calls with in-panel playback |
 
 ### Data sources (Boise)
 | Type | Source | Interval | Notes |
 |------|--------|----------|-------|
 | 🔥 Fire/EMS | PulsePoint (Ada County ACCESS) | 2 min | Boise Fire, ACCESS paramedics, Meridian, Eagle |
 | 🚧 Work zones | ITD WZDx | 1 min | Statewide feed, bbox-filtered to Treasure Valley |
-| 🔫 Crime | Boise PD ArcGIS | 15 min | Feed lags ~1 month; 60-day window shown |
+| 🚧 Local roadwork | ACHD RITA | 1 min | Closures & lane restrictions on Boise-area surface streets |
+| 🔫 Crime (city) | Boise PD ArcGIS | 15 min | Feed lags ~1 month; 60-day window shown |
+| 🔫 Crime (county) | Ada County CrimeMapper | 15 min | ACSO, Meridian PD, Garden City PD — ~1-2 day lag; Boise PD excluded (its rows backfill slowly there) |
+| 📷 Traffic cameras | Idaho 511 / ITD | 5 min roster | 234 Treasure Valley cams, images refresh every 15-60s |
 
 ### Shared (every region)
 | Type | Source | Interval | Notes |
@@ -40,8 +54,12 @@ The backend fetches **all** regions concurrently; the header switcher picks whic
 | 🌤️ Current weather | Open-Meteo | 5 min | No API key needed |
 | 🌬️ Air quality | AirNow | 30 min | Requires free API key |
 | ✈️ Aircraft | OpenSky Network | 5 sec | Opt-in per client & per region (quota-aware) |
+| 🔥 Wildfires | NIFC WFIGS | 2 min | Current interagency incidents; presence implies active |
+| 🌎 Earthquakes | USGS FDSN | 2 min | 200 km point-radius, rolling 7 days |
+| 🌊 River gauges | NWS / NWPS | 2 min | Incidents only at/above action stage |
+| 🌧️ Radar | RainViewer (IEM fallback) | 5 min | Client-side tile overlay |
 | 📰 Local news | RSS feeds | 5 min | Region-filtered, related-news matching per incident |
-| 📷 Cameras | MD CHART, DC DOT, curated webcams | 5 min | 100+ feeds in DC, curated list in Boise |
+| 📷 Cameras | MD CHART, DC DOT, Idaho 511, curated webcams | 5 min | 100+ feeds in DC, 240+ in Boise |
 
 ## Quick start
 
