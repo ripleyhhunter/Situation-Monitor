@@ -1,43 +1,83 @@
 import { writable, get } from 'svelte/store';
-import type { Incident, WeatherAlert } from '$types';
+import type { Incident, WeatherAlert, RegionId } from '$types';
+import { haversineDistance } from '$utils/geo';
+import { selectedRegionId } from '$stores/region';
+import { userLocation } from '$stores/location';
+import { selectIncident } from '$stores/incidents';
 
 export type NotificationPermission = 'default' | 'granted' | 'denied';
 
-// Store for notification permission status
-export const notificationPermission = writable<NotificationPermission>('default');
-
-// Store for notification settings
-export const notificationSettings = writable({
-  enabled: false,
-  criticalOnly: false,    // Only notify for severity 4-5
-  nearbyOnly: false,      // Only notify for incidents within radius
-  nearbyRadius: 5,        // km
-  sound: true,
-});
-
-/**
- * Request notification permission
- */
-export async function requestNotificationPermission(): Promise<boolean> {
-  if (typeof Notification === 'undefined') {
-    console.warn('Notifications not supported');
-    return false;
-  }
-
-  const permission = await Notification.requestPermission();
-  notificationPermission.set(permission as NotificationPermission);
-
-  if (permission === 'granted') {
-    notificationSettings.update((s) => ({ ...s, enabled: true }));
-    return true;
-  }
-
-  return false;
+export interface NotificationSettings {
+  enabled: boolean;
+  /** Only notify for severity 4-5 incidents. */
+  criticalOnly: boolean;
+  /** Only notify for incidents within nearbyRadiusKm of the user's location. */
+  nearbyOnly: boolean;
+  nearbyRadiusKm: number;
+  /** Also notify for severe/extreme NWS weather alerts. */
+  weatherAlerts: boolean;
+  sound: boolean;
 }
 
-/**
- * Check current notification permission
- */
+const DEFAULT_SETTINGS: NotificationSettings = {
+  enabled: false,
+  criticalOnly: false,
+  nearbyOnly: false,
+  nearbyRadiusKm: 5,
+  weatherAlerts: true,
+  sound: true,
+};
+
+const STORAGE_KEY = 'situation-monitor.notificationSettings';
+
+// Crime feeds ingest records hours-to-weeks old as incident:new (BPD lags
+// ~a month); only OS-notify for incidents that are actually fresh.
+const FRESHNESS_MS = 30 * 60 * 1000;
+
+// Cap the session dedupe set so a long-lived tab doesn't grow it forever.
+const MAX_NOTIFIED_IDS = 1000;
+
+function readSettings(): NotificationSettings {
+  if (typeof localStorage === 'undefined') return { ...DEFAULT_SETTINGS };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    const parsed = JSON.parse(raw) as Partial<NotificationSettings>;
+    return {
+      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : DEFAULT_SETTINGS.enabled,
+      criticalOnly: typeof parsed.criticalOnly === 'boolean' ? parsed.criticalOnly : DEFAULT_SETTINGS.criticalOnly,
+      nearbyOnly: typeof parsed.nearbyOnly === 'boolean' ? parsed.nearbyOnly : DEFAULT_SETTINGS.nearbyOnly,
+      nearbyRadiusKm:
+        // Keep in the slider's 1-25 range so the label never shows a value
+        // the control can't represent.
+        typeof parsed.nearbyRadiusKm === 'number' && parsed.nearbyRadiusKm >= 1 && parsed.nearbyRadiusKm <= 25
+          ? parsed.nearbyRadiusKm
+          : DEFAULT_SETTINGS.nearbyRadiusKm,
+      weatherAlerts: typeof parsed.weatherAlerts === 'boolean' ? parsed.weatherAlerts : DEFAULT_SETTINGS.weatherAlerts,
+      sound: typeof parsed.sound === 'boolean' ? parsed.sound : DEFAULT_SETTINGS.sound,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+export const notificationPermission = writable<NotificationPermission>('default');
+export const notificationSettings = writable<NotificationSettings>(readSettings());
+
+notificationSettings.subscribe((settings) => {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    } catch {
+      // Storage full/blocked — settings just won't persist.
+    }
+  }
+});
+
+export function updateNotificationSettings(partial: Partial<NotificationSettings>): void {
+  notificationSettings.update((s) => ({ ...s, ...partial }));
+}
+
 export function checkNotificationPermission(): void {
   if (typeof Notification !== 'undefined') {
     notificationPermission.set(Notification.permission as NotificationPermission);
@@ -45,96 +85,227 @@ export function checkNotificationPermission(): void {
 }
 
 /**
- * Send a browser notification for an incident
+ * Request browser permission and enable notifications if granted.
+ * Returns true when permission is granted.
+ */
+export async function requestNotificationPermission(): Promise<boolean> {
+  if (typeof Notification === 'undefined') {
+    console.warn('Notifications not supported in this browser');
+    return false;
+  }
+
+  const permission = await Notification.requestPermission();
+  notificationPermission.set(permission as NotificationPermission);
+
+  if (permission === 'granted') {
+    updateNotificationSettings({ enabled: true });
+    return true;
+  }
+  return false;
+}
+
+export interface NotifyContext {
+  selectedRegionId: RegionId;
+  userLocation: [number, number] | null;
+  /** ms epoch "now" — injected for testability. */
+  now: number;
+}
+
+/**
+ * Pure decision: should this incident produce an OS notification?
+ * Exported for unit tests; permission and dedupe are checked separately.
+ */
+export function shouldNotifyIncident(
+  incident: Incident,
+  settings: NotificationSettings,
+  ctx: NotifyContext
+): boolean {
+  if (!settings.enabled) return false;
+  if (incident.status !== 'active') return false;
+  // Only the region being watched — a Boise crime ping while watching DC is noise.
+  if (incident.regionId !== ctx.selectedRegionId) return false;
+
+  // Freshness gate: crime/CAD feeds replay old records as "new" all the time.
+  const age = ctx.now - new Date(incident.timestamp).getTime();
+  if (Number.isNaN(age) || age > FRESHNESS_MS || age < -FRESHNESS_MS) return false;
+
+  if (settings.criticalOnly && incident.severity < 4) return false;
+
+  if (settings.nearbyOnly) {
+    if (!ctx.userLocation) return false;
+    const [lat, lng] = ctx.userLocation;
+    const distance = haversineDistance(lat, lng, incident.location.lat, incident.location.lng);
+    if (distance > settings.nearbyRadiusKm) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Pure decision for weather alerts: severe/extreme only, selected region only.
+ */
+export function shouldNotifyWeatherAlert(
+  alert: WeatherAlert,
+  settings: NotificationSettings,
+  ctx: Pick<NotifyContext, 'selectedRegionId'>
+): boolean {
+  if (!settings.enabled || !settings.weatherAlerts) return false;
+  if (alert.regionId !== ctx.selectedRegionId) return false;
+  return alert.severity === 'severe' || alert.severity === 'extreme';
+}
+
+// Session-scoped dedupe — an incident:update or reconnect replay must not
+// re-fire the same notification.
+const notifiedIds = new Set<string>();
+
+function markNotified(id: string): void {
+  notifiedIds.add(id);
+  if (notifiedIds.size > MAX_NOTIFIED_IDS) {
+    // Sets iterate in insertion order — drop the oldest entries.
+    const excess = notifiedIds.size - MAX_NOTIFIED_IDS;
+    let i = 0;
+    for (const oldId of notifiedIds) {
+      notifiedIds.delete(oldId);
+      if (++i >= excess) break;
+    }
+  }
+}
+
+const TYPE_EMOJI: Record<string, string> = {
+  traffic: '🚗',
+  crime: '🚨',
+  fire: '🔥',
+  weather: '🌩️',
+  transit: '🚇',
+  gunshot: '🔫',
+  hazard: '⚠️',
+};
+
+function canShowNotifications(): boolean {
+  return typeof Notification !== 'undefined' && Notification.permission === 'granted';
+}
+
+/**
+ * Notify for a new incident (call sites gate on the SSE snapshot burst so
+ * reconnect replays never spam).
  */
 export function notifyIncident(incident: Incident): void {
+  if (!canShowNotifications()) return;
+  if (notifiedIds.has(incident.id)) return;
+
   const settings = get(notificationSettings);
+  const ctx: NotifyContext = {
+    selectedRegionId: get(selectedRegionId),
+    userLocation: get(userLocation),
+    now: Date.now(),
+  };
+  if (!shouldNotifyIncident(incident, settings, ctx)) return;
 
-  if (!settings.enabled) return;
-  if (settings.criticalOnly && incident.severity < 4) return;
+  markNotified(incident.id);
 
-  const icon = getIncidentIcon(incident.type);
-  const tag = `incident-${incident.id}`;
+  const emoji = TYPE_EMOJI[incident.type] ?? '📍';
+  try {
+    const notification = new Notification(`${emoji} ${incident.title}`, {
+      body: incident.description || incident.location.address || '',
+      tag: `incident-${incident.id}`,
+      requireInteraction: incident.severity >= 4,
+    });
+    notification.onclick = () => {
+      window.focus();
+      // MapContainer reacts to selectedIncident by centering at zoom 17.
+      selectIncident(incident);
+      notification.close();
+    };
+  } catch {
+    // Some mobile browsers only allow ServiceWorkerRegistration.showNotification.
+    return;
+  }
 
-  const notification = new Notification(incident.title, {
-    body: incident.description,
-    icon,
-    tag, // Prevents duplicate notifications
-    requireInteraction: incident.severity >= 4,
-  });
-
-  // Play sound for critical incidents
   if (settings.sound && incident.severity >= 4) {
     playAlertSound();
   }
-
-  notification.onclick = () => {
-    window.focus();
-    // Could dispatch a custom event to focus on this incident
-    window.dispatchEvent(new CustomEvent('focus-incident', { detail: incident }));
-  };
 }
 
 /**
- * Send a browser notification for a weather alert
+ * Notify for a severe/extreme weather alert.
  */
 export function notifyWeatherAlert(alert: WeatherAlert): void {
+  if (!canShowNotifications()) return;
+  const dedupeKey = `weather-${alert.id}`;
+  if (notifiedIds.has(dedupeKey)) return;
+
   const settings = get(notificationSettings);
+  if (!shouldNotifyWeatherAlert(alert, settings, { selectedRegionId: get(selectedRegionId) })) return;
 
-  if (!settings.enabled) return;
+  markNotified(dedupeKey);
 
-  const isCritical = alert.severity === 'severe' || alert.severity === 'extreme';
-  if (settings.criticalOnly && !isCritical) return;
-
-  const notification = new Notification(`Weather Alert: ${alert.event}`, {
-    body: alert.headline,
-    icon: '/icons/weather.svg',
-    tag: `weather-${alert.id}`,
-    requireInteraction: isCritical,
-  });
-
-  if (settings.sound && isCritical) {
-    playAlertSound();
+  try {
+    const notification = new Notification(`🌩️ ${alert.event}`, {
+      body: alert.headline,
+      tag: dedupeKey,
+      requireInteraction: alert.severity === 'extreme',
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  } catch {
+    return;
   }
 
-  notification.onclick = () => {
-    window.focus();
-    window.dispatchEvent(new CustomEvent('focus-weather', { detail: alert }));
-  };
+  if (settings.sound) {
+    playAlertSound();
+  }
 }
 
 /**
- * Get icon path for incident type
- */
-function getIncidentIcon(type: string): string {
-  const icons: Record<string, string> = {
-    traffic: '/icons/traffic.svg',
-    crime: '/icons/crime.svg',
-    fire: '/icons/fire.svg',
-    weather: '/icons/weather.svg',
-    transit: '/icons/transit.svg',
-    gunshot: '/icons/gunshot.svg',
-    hazard: '/icons/hazard.svg',
-  };
-  return icons[type] || '/icons/default.svg';
-}
-
-/**
- * Play alert sound
+ * Short two-tone chirp via WebAudio — no audio asset needed.
  */
 function playAlertSound(): void {
   try {
-    const audio = new Audio('/sounds/alert.mp3');
-    audio.volume = 0.5;
-    audio.play().catch(() => {
-      // Ignore errors - user might not have interacted yet
-    });
+    type AudioContextCtor = typeof AudioContext;
+    const Ctor: AudioContextCtor | undefined =
+      typeof AudioContext !== 'undefined'
+        ? AudioContext
+        : (window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
+    if (!Ctor) return;
+    const ctx = new Ctor();
+    // Autoplay policy: a context created outside a user gesture starts
+    // suspended. resume() succeeds once the page has ever been interacted
+    // with; otherwise the chirp silently no-ops (nothing else to do).
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+    const gain = ctx.createGain();
+    gain.gain.value = 0.08;
+    gain.connect(ctx.destination);
+
+    const tone = (freq: number, start: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + duration);
+    };
+    tone(880, 0, 0.12);
+    tone(660, 0.15, 0.12);
+    setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 500);
   } catch {
-    // Audio not supported
+    // Audio blocked before user interaction — fine.
   }
 }
 
-// Initialize permission status on load
+// Initialize permission status on load, and re-check when the user returns
+// to the tab — permission can be revoked in browser settings mid-session,
+// and nothing else would resync the store.
 if (typeof window !== 'undefined') {
   checkNotificationPermission();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkNotificationPermission();
+    }
+  });
 }

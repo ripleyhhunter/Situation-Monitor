@@ -13,6 +13,7 @@ import {
 } from '$stores/weather';
 import { updateAircraft } from '$stores/aircraft';
 import { updateNews } from '$stores/news';
+import { notifyIncident, notifyWeatherAlert } from './notifications';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -123,6 +124,8 @@ class SSEService {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
       if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
+      // Skip the connect/reconnect snapshot burst — replayed actives are not news.
+      if (!this.reconcilePending) notifyIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
 
@@ -130,6 +133,10 @@ class SSEService {
       const data = JSON.parse(event.data) as SSEEvent<Incident>;
       if (this.reconcilePending) this.snapshotIncidentIds.add(data.data.id);
       upsertIncident(data.data);
+      // Escalations: an incident that first arrived below the critical
+      // threshold only crosses it via update. Dedupe + freshness gates
+      // make re-evaluating every update safe.
+      if (!this.reconcilePending) notifyIncident(data.data);
       lastEventTime.set(data.timestamp);
     });
 
@@ -149,6 +156,7 @@ class SSEService {
       const data = JSON.parse(event.data) as SSEEvent<WeatherAlert>;
       if (this.reconcilePending) this.snapshotAlertIds.add(data.data.id);
       upsertWeatherAlert(data.data);
+      if (!this.reconcilePending) notifyWeatherAlert(data.data);
       lastEventTime.set(data.timestamp);
     });
 
