@@ -50,6 +50,22 @@ describe('normalizeAchdFeature', () => {
     expect(normalizeAchdFeature(mkFeature({ last_edited_date: null }))).toBeNull();
     expect(normalizeAchdFeature(mkFeature({}, null))).toBeNull();
     expect(normalizeAchdFeature(mkFeature({}, { type: 'LineString', coordinates: [] }))).toBeNull();
+    expect(normalizeAchdFeature(mkFeature({ GlobalID: null, OBJECTID: undefined }))).toBeNull();
+  });
+
+  it('labels future-start projects as upcoming with capped severity', () => {
+    const now = Date.parse('2026-07-04T12:00:00Z');
+    const futureStart = Date.parse('2026-07-06T06:00:00Z');
+    const incident = normalizeAchdFeature(mkFeature({ START: futureStart, TYPE: 'Road Closure' }), now);
+    expect(incident!.title).toBe('Upcoming Road Closure: Jefferson St');
+    expect(incident!.severity).toBe(2); // capped: the road is still open
+    expect(incident!.metadata.upcoming).toBe(true);
+    expect(incident!.description).toContain('Starts:');
+
+    // A project already underway keeps full severity.
+    const active = normalizeAchdFeature(mkFeature({ TYPE: 'Road Closure' }), now);
+    expect(active!.severity).toBe(4);
+    expect(active!.metadata.upcoming).toBeUndefined();
   });
 
   it('handles MultiLineString geometry', () => {
@@ -78,5 +94,22 @@ describe('achdMidpoint', () => {
     expect(achdMidpoint(null)).toBeNull();
     expect(achdMidpoint({ type: 'LineString', coordinates: [] })).toBeNull();
     expect(achdMidpoint({ type: 'MultiLineString', coordinates: [[]] })).toBeNull();
+  });
+});
+
+describe('AchdClosuresFetcher contract-drift guard', () => {
+  it('throws on error bodies, shape drift, and truncated snapshots', async () => {
+    const { AchdClosuresFetcher } = await import('./achd-closures.js');
+    const fetcher = new AchdClosuresFetcher();
+    const call = (body: unknown) => {
+      (fetcher as unknown as { httpGet: () => Promise<unknown> }).httpGet = async () => body;
+      return (fetcher as unknown as { fetchFromApi: () => Promise<unknown> }).fetchFromApi();
+    };
+
+    await expect(call({ error: { code: 400, message: 'bad' } })).rejects.toThrow('ACHD RITA error 400');
+    await expect(call({})).rejects.toThrow('unexpected response shape');
+    await expect(call({ features: [], exceededTransferLimit: true })).rejects.toThrow('truncated');
+    await expect(call({ features: [], properties: { exceededTransferLimit: true } })).rejects.toThrow('truncated');
+    await expect(call({ features: [] })).resolves.toEqual([]);
   });
 });

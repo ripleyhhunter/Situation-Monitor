@@ -93,7 +93,9 @@ export function aggregateAdaCrimeFeatures(features: AdaCrimeFeature[]): Incident
     const a = primary.attributes;
     // ReportedDate is the only per-record time the feed exposes; records are
     // effectively immutable once published, so it serves as updatedAt too
-    // (never wall-clock now — the aggregator diffs on updatedAt).
+    // (never wall-clock now — the aggregator diffs on updatedAt). Known
+    // trade-off: charges added to a case on a later refresh won't
+    // re-broadcast, since no feed field records that change.
     const reported = new Date(a.ReportedDate as number).toISOString();
     const title = a.CATEGORY || a.Description || 'Crime report';
 
@@ -137,8 +139,6 @@ export function aggregateAdaCrimeFeatures(features: AdaCrimeFeature[]): Incident
 }
 
 export class AdaCrimeFetcher extends BaseFetcher<Incident> {
-  readonly incidentSource = 'ada-crime' as const;
-
   constructor() {
     // The upstream refreshes daily; the crime cron fires every 15 min, so a
     // 1h cache keeps polls polite without meaningfully adding staleness.
@@ -154,7 +154,10 @@ export class AdaCrimeFetcher extends BaseFetcher<Incident> {
         where: `ReportedDate >= CURRENT_TIMESTAMP - ${FETCH_WINDOW_DAYS} AND AGENCY <> 'Boise PD'`,
         outFields: 'Case_Number,Address,City,ReportedDate,Status,Description,CATEGORY,NIBRDesc,AGENCY,Offense,Crime_Against_Category',
         outSR: '4326',
-        orderByFields: 'ReportedDate DESC',
+        // Case_Number tie-breaker: per-case rows share a ReportedDate, and
+        // an unstable tie order across page requests could skip rows at
+        // page boundaries.
+        orderByFields: 'ReportedDate DESC,Case_Number',
         resultOffset: String(page * PAGE_SIZE),
         resultRecordCount: String(PAGE_SIZE),
         f: 'json',

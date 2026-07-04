@@ -45,6 +45,9 @@ export interface AchdFeature {
 interface AchdResponse {
   type?: 'FeatureCollection';
   features?: AchdFeature[];
+  exceededTransferLimit?: boolean;
+  properties?: { exceededTransferLimit?: boolean };
+  error?: { code?: number; message?: string };
 }
 
 export function achdSeverity(type: string | null | undefined): 1 | 2 | 3 | 4 | 5 {
@@ -72,7 +75,7 @@ export function achdMidpoint(geometry: AchdFeature['geometry']): [number, number
 }
 
 /** Normalize one RITA feature. Exported for tests. */
-export function normalizeAchdFeature(feature: AchdFeature): Incident | null {
+export function normalizeAchdFeature(feature: AchdFeature, now = Date.now()): Incident | null {
   const props = feature.properties ?? {};
   const point = achdMidpoint(feature.geometry);
   if (!point) return null;
@@ -82,13 +85,23 @@ export function normalizeAchdFeature(feature: AchdFeature): Incident | null {
   // updatedAt must come from the feed; records without it are dropped
   // rather than stamped with wall-clock now.
   if (typeof edited !== 'number') return null;
+  // Without any stable id the same feature would mint colliding ids.
+  if (!props.GlobalID && typeof props.OBJECTID !== 'number') return null;
 
   const type = props.TYPE || 'Roadwork';
   const roadway = props.ROADWAY || 'Ada County road';
-  const title = `${type}: ${roadway}`;
+
+  // ACHD promotes projects to "Current" a couple of days before work
+  // starts. Don't assert an active closure for a road that's still open —
+  // label it upcoming and keep severity low until START passes.
+  const isUpcoming = typeof start === 'number' && start > now;
+  const title = isUpcoming ? `Upcoming ${type}: ${roadway}` : `${type}: ${roadway}`;
 
   const parts: string[] = [];
   if (props.LOCATION) parts.push(props.LOCATION);
+  if (isUpcoming) {
+    parts.push(`Starts: ${new Date(start as number).toLocaleDateString('en-US', { timeZone: 'America/Boise' })}`);
+  }
   if (props.PURPOSE) parts.push(props.PURPOSE);
   if (props.CITY) parts.push(`City: ${props.CITY}`);
   if (props.CONTRACTOR) parts.push(`Contractor: ${props.CONTRACTOR}`);
@@ -100,7 +113,7 @@ export function normalizeAchdFeature(feature: AchdFeature): Incident | null {
     id: `achd-${props.GlobalID || props.OBJECTID}`,
     regionId: 'boise',
     type: 'traffic',
-    severity: achdSeverity(props.TYPE),
+    severity: isUpcoming ? Math.min(achdSeverity(props.TYPE), 2) as 1 | 2 : achdSeverity(props.TYPE),
     location: {
       lat: point[1],
       lng: point[0],
@@ -117,6 +130,7 @@ export function normalizeAchdFeature(feature: AchdFeature): Incident | null {
       // Ongoing situation: exempt from the frontend's event-time filter —
       // a project started months ago is still restricting traffic now.
       ongoing: true,
+      upcoming: isUpcoming || undefined,
       roadway,
       projectType: props.TYPE,
       purpose: props.PURPOSE,
@@ -148,10 +162,19 @@ export class AchdClosuresFetcher extends BaseFetcher<Incident> {
   protected async fetchFromApi(): Promise<Incident[]> {
     const response = await this.httpGet<AchdResponse>(AchdClosuresFetcher.URL);
 
+    if (response.error) {
+      // ArcGIS returns HTTP 200 with an error body.
+      throw new Error(`ACHD RITA error ${response.error.code}: ${response.error.message}`);
+    }
     if (!response.features || !Array.isArray(response.features)) {
       // Complete-listing source: a false-empty "success" would clear every
       // ACHD project. Contract drift must be a failure.
       throw new Error('ACHD RITA: unexpected response shape (no features array)');
+    }
+    if (response.exceededTransferLimit || response.properties?.exceededTransferLimit) {
+      // A truncated snapshot would silently cross-clear everything past the
+      // page boundary.
+      throw new Error('ACHD RITA: response truncated (exceededTransferLimit)');
     }
 
     const incidents: Incident[] = [];
