@@ -72,9 +72,12 @@ export class OpenMHzFetcher extends BaseFetcher<ScannerCall> {
 
   private talkgroups: Map<number, { name: string; description: string }> = new Map();
   private talkgroupsFetchedAt = 0;
+  private talkgroupsAttemptedAt = 0;
 
   constructor(options: OpenMHzFetcherOptions) {
-    super(`openmhz-${options.systemId}`, 120);
+    // Region-scoped cache key: two regions wiring the same system must not
+    // share a cache entry stamped with the wrong regionId.
+    super(`openmhz-${options.regionId}-${options.systemId}`, 120);
     this.regionId = options.regionId;
     this.systemId = options.systemId;
     this.systemLabel = options.systemLabel;
@@ -149,10 +152,18 @@ export class OpenMHzFetcher extends BaseFetcher<ScannerCall> {
     };
   }
 
+  private static readonly TALKGROUP_RETRY_MS = 10 * 60 * 1000;
+
   private async refreshTalkgroupsIfStale(): Promise<void> {
     if (Date.now() - this.talkgroupsFetchedAt < TALKGROUP_REFRESH_MS && this.talkgroups.size > 0) {
       return;
     }
+    // Backoff on failure/empty: without this, a broken talkgroups endpoint
+    // would be re-hit (and delay the calls fetch) on every poll forever.
+    if (Date.now() - this.talkgroupsAttemptedAt < OpenMHzFetcher.TALKGROUP_RETRY_MS) {
+      return;
+    }
+    this.talkgroupsAttemptedAt = Date.now();
     try {
       const response = await this.fetchJson<OpenMHzTalkgroupsResponse>(
         `https://api.openmhz.com/${this.systemId}/talkgroups`

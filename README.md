@@ -111,7 +111,7 @@ The PulsePoint end-to-end test drives a real browser against the live site and i
 
 ## Notes & limitations
 
-- **Fire/EMS**: neither DC nor Boise publishes raw CAD data; PulsePoint is scraped with a headless browser, and only while clients are connected. DC police radio has been encrypted since 2011 — the scanner panel links out to Broadcastify/OpenMHz instead.
+- **Fire/EMS**: neither DC nor Boise publishes raw CAD data; PulsePoint is scraped with a headless browser, and only while clients are connected. DC police radio has been encrypted since 2011, but DC Fire & EMS call audio streams into the scanner panel from OpenMHz (near-real-time archived calls); Boise has no OpenMHz system, so its panel links out to Broadcastify/RadioReference.
 - **Persistence**: there is no database; state is in-memory with an optional Redis snapshot of active incidents for restarts.
 - **Twitter/X**: the `@dcfireems` fetcher works but requires the $100/mo API tier (`TWITTER_BEARER_TOKEN`).
 

@@ -55,7 +55,7 @@ Incident lifecycle notes:
 | Boise crime data lags ~1 month | bpd-crime uses a 60-day fetch window + matching 60-day expiry; near-real-time `BPD_CallsForService` exists but not yet wired |
 | DC ShotSpotter feed appears stale (no new detections since ~2026-04) | 30-day fetch window — the layer is honestly empty until the feed revives |
 | ITD camera API requires a key | Skipped — Boise's `cameraFetchers` only ships curated NWS Boise airport cams |
-| OpenMHz fetcher is a placeholder that always returns `[]` | Scanner panel links out to Broadcastify/OpenMHz instead |
+| OpenMHz blocks Node's TLS fingerprint (403) while serving curl/browsers | Scanner fetcher shells out to the system curl; DC Fire & EMS call audio plays in the scanner panel. No Idaho systems exist on OpenMHz, so Boise keeps link-outs |
 
 ## Build & Development Commands
 
