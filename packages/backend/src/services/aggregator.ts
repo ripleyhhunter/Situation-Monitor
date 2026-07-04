@@ -53,6 +53,13 @@ class AggregatorService {
   private state = new Map<RegionId, RegionState>();
   private initialized = false;
 
+  // When the aggregator FIRST saw an incident as non-active. Cleared
+  // retention must be measured from this moment: feeds like PulsePoint and
+  // DC 311 deliver already-cleared items whose feed-derived updatedAt is
+  // hours old — measuring retention against updatedAt deleted them
+  // instantly, and the next poll re-added them (a delete/re-add loop).
+  private clearedObservedAt = new Map<string, number>();
+
   constructor() {
     for (const region of allRegions) {
       this.state.set(region.id, this.emptyState());
@@ -328,14 +335,27 @@ class AggregatorService {
     }
 
     const state = this.getState(region.id);
+    const changed: Camera[] = [];
     for (const camera of allCameras) {
       const existing = state.cameras.get(camera.id);
-      if (!existing || existing.lastUpdated !== camera.lastUpdated) {
+      // Content comparison, not just lastUpdated: roster stamps are stable
+      // per process, but mdchart names/positions/stream URLs do drift and
+      // must still propagate.
+      if (
+        !existing ||
+        existing.lastUpdated !== camera.lastUpdated ||
+        existing.name !== camera.name ||
+        existing.streamUrl !== camera.streamUrl ||
+        existing.imageUrl !== camera.imageUrl ||
+        existing.location.lat !== camera.location.lat ||
+        existing.location.lng !== camera.location.lng
+      ) {
         state.cameras.set(camera.id, camera);
         database.upsertCamera(camera);
-        sse.broadcast('camera:update', camera);
+        changed.push(camera);
       }
     }
+    sse.broadcastCameraChanges(changed);
   }
 
   private async fetchTrafficIncidents(region: RegionPack): Promise<void> {
@@ -494,6 +514,9 @@ class AggregatorService {
     const state = this.getState(region.id);
     const processedIds = new Set<string>();
     const historyBatch: Incident[] = [];
+    const added: Incident[] = [];
+    const updated: Incident[] = [];
+    const clearedIds: string[] = [];
     let hasChanges = false;
 
     for (const incident of newIncidents) {
@@ -506,13 +529,13 @@ class AggregatorService {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         historyBatch.push(incident);
-        sse.broadcast('incident:new', incident);
+        added.push(incident);
         hasChanges = true;
       } else if (existing.updatedAt !== incident.updatedAt) {
         state.incidents.set(incident.id, incident);
         database.upsertIncident(incident);
         historyBatch.push(incident);
-        sse.broadcast('incident:update', incident);
+        updated.push(incident);
         hasChanges = true;
       }
     }
@@ -531,12 +554,16 @@ class AggregatorService {
             incident.updatedAt = new Date().toISOString();
             database.updateIncidentStatus(id, 'cleared');
             history.markCleared(id, incident.updatedAt);
-            sse.broadcast('incident:clear', { id, regionId: region.id });
+            clearedIds.push(id);
             hasChanges = true;
           }
         }
       }
     }
+
+    // One SSE pass per poll batch (arrays for current clients, per-item for
+    // older deployed frontends) instead of one broadcast per incident.
+    sse.broadcastIncidentChanges(region.id, added, updated, clearedIds);
 
     if (hasChanges) {
       this.persistIncidents(region.id).catch(() => {});
@@ -577,18 +604,26 @@ class AggregatorService {
       const completeListing = new Set(
         allRegions.find(r => r.id === regionId)?.sourcesWithCompleteListing ?? [],
       );
+      const sweptIds: string[] = [];
 
       for (const [id, incident] of state.incidents) {
         if (incident.status !== 'active') {
-          const clearedAge = now - new Date(incident.updatedAt).getTime();
-          if (clearedAge > CLEARED_RETENTION_MS) {
+          const observedAt = this.clearedObservedAt.get(id);
+          if (observedAt === undefined) {
+            this.clearedObservedAt.set(id, now);
+            continue;
+          }
+          if (now - observedAt > CLEARED_RETENTION_MS) {
             state.incidents.delete(id);
             database.deleteIncident(id);
+            this.clearedObservedAt.delete(id);
             deletedCount++;
             changedRegions.add(regionId);
           }
           continue;
         }
+        // Reactivated after being observed cleared — reset the clock.
+        this.clearedObservedAt.delete(id);
 
         if (completeListing.has(incident.source)) continue;
 
@@ -600,11 +635,13 @@ class AggregatorService {
           incident.updatedAt = new Date().toISOString();
           database.updateIncidentStatus(id, 'cleared');
           history.markCleared(id, incident.updatedAt);
-          sse.broadcast('incident:clear', { id, regionId });
+          sweptIds.push(id);
           clearedCount++;
           changedRegions.add(regionId);
         }
       }
+
+      sse.broadcastIncidentChanges(regionId, [], [], sweptIds);
     }
 
     if (changedRegions.size > 0) {

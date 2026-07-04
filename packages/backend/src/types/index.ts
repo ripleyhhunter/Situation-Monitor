@@ -254,6 +254,12 @@ export type SSEEventType =
   | 'aircraft:update'
   | 'news:update'
   | 'scanner:update'
+  // Batched variants: sent to clients that connect with ?batch=1. One event
+  // carries many items so the browser does one store update per chunk
+  // instead of one per item (the 6,800-event connect snapshot froze the UI).
+  | 'incident:batch'
+  | 'incident:clear-batch'
+  | 'camera:batch'
   | 'heartbeat'
   | 'connected';
 

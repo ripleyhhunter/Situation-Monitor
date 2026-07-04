@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sse } from '../services/sse.js';
+import { sse, BATCH_CHUNK } from '../services/sse.js';
 import { aggregator } from '../services/aggregator.js';
 import { regionsById, defaultRegionId } from '../regions/index.js';
 import logger from '../logger.js';
@@ -24,8 +24,12 @@ router.get('/', (req, res) => {
   const wantsAircraft = req.query.aircraft === 'true';
   const aircraftRegion = wantsAircraft ? toRegionId(req.query.region) : null;
 
+  // Batch-capable clients (current frontend) get array events; without the
+  // flag an older deployed frontend still gets the per-item stream.
+  const supportsBatch = req.query.batch === '1';
+
   // Add this client to SSE service
-  const clientId = sse.addClient(res);
+  const clientId = sse.addClient(res, { supportsBatch });
 
   // Update initial preferences based on query params
   sse.updateClientPreferences(clientId, { aircraftRegion });
@@ -33,16 +37,29 @@ router.get('/', (req, res) => {
   // Send initial data dump to catch up the client
   const data = aggregator.getAll();
 
-  // Send all current incidents
-  for (const incident of data.incidents) {
-    res.write(`event: incident:new\n`);
-    res.write(`data: ${JSON.stringify({ type: 'incident:new', data: incident, timestamp: new Date().toISOString() })}\n\n`);
-  }
-
-  // Send all cameras
-  for (const camera of data.cameras) {
-    res.write(`event: camera:update\n`);
-    res.write(`data: ${JSON.stringify({ type: 'camera:update', data: camera, timestamp: new Date().toISOString() })}\n\n`);
+  // Send all current incidents and cameras. Batched: ~14 array events
+  // instead of ~6,800 individual ones — the difference between a connect
+  // snapshot the browser absorbs in one paint and a multi-second UI freeze.
+  if (supportsBatch) {
+    for (let i = 0; i < data.incidents.length; i += BATCH_CHUNK) {
+      const chunk = data.incidents.slice(i, i + BATCH_CHUNK);
+      res.write(`event: incident:batch\n`);
+      res.write(`data: ${JSON.stringify({ type: 'incident:batch', data: { incidents: chunk }, timestamp: new Date().toISOString() })}\n\n`);
+    }
+    for (let i = 0; i < data.cameras.length; i += BATCH_CHUNK) {
+      const chunk = data.cameras.slice(i, i + BATCH_CHUNK);
+      res.write(`event: camera:batch\n`);
+      res.write(`data: ${JSON.stringify({ type: 'camera:batch', data: { cameras: chunk }, timestamp: new Date().toISOString() })}\n\n`);
+    }
+  } else {
+    for (const incident of data.incidents) {
+      res.write(`event: incident:new\n`);
+      res.write(`data: ${JSON.stringify({ type: 'incident:new', data: incident, timestamp: new Date().toISOString() })}\n\n`);
+    }
+    for (const camera of data.cameras) {
+      res.write(`event: camera:update\n`);
+      res.write(`data: ${JSON.stringify({ type: 'camera:update', data: camera, timestamp: new Date().toISOString() })}\n\n`);
+    }
   }
 
   // Send weather alerts

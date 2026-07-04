@@ -14,6 +14,17 @@ export function upsertCamera(camera: Camera): void {
   });
 }
 
+// Bulk upsert: one store update for a whole batch (see incidents store).
+export function upsertCameras(list: Camera[]): void {
+  if (list.length === 0) return;
+  cameras.update((map) => {
+    for (const camera of list) {
+      map.set(camera.id, camera);
+    }
+    return new Map(map);
+  });
+}
+
 // Remove a camera
 export function removeCamera(id: string): void {
   cameras.update((map) => {

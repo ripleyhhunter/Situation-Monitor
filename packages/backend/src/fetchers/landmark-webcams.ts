@@ -3,6 +3,12 @@ import type { Camera } from '../types/index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
+// Stable per-process roster stamp. Cameras are a quasi-static roster with
+// no per-item feed timestamp; stamping `now` on every poll made the
+// aggregator rebroadcast the whole roster to every client each cycle
+// (hundreds of SSE events and full marker rebuilds every 5 minutes).
+const ROSTER_STAMP = new Date().toISOString();
+
 /**
  * Curated list of landmark webcams in the DC area
  * These are manually maintained since they don't have a unified API
@@ -291,7 +297,7 @@ export class LandmarkWebcamsFetcher extends BaseFetcher<Camera> {
         source: 'landmark' as const,
         streamUrl,
         imageUrl: undefined, // Most require page visit
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: ROSTER_STAMP,
       };
     });
 

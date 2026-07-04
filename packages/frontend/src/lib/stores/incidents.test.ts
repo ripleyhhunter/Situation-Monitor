@@ -70,3 +70,36 @@ describe('incident store lifecycle', () => {
     expect(byType['volcano'].map((i) => i.id)).toEqual(['weird']);
   });
 });
+
+describe('bulk store operations (batched SSE events)', () => {
+  it('upsertIncidents applies a whole batch in one update', async () => {
+    const { upsertIncidents, clearIncidents, incidents } = await import('./incidents');
+    const { get } = await import('svelte/store');
+    let updates = 0;
+    const unsub = incidents.subscribe(() => updates++);
+    const baseline = updates;
+
+    upsertIncidents([
+      { id: 'bulk-1', regionId: 'dc', type: 'fire', severity: 3, location: { lat: 38.9, lng: -77 }, timestamp: new Date().toISOString(), updatedAt: new Date().toISOString(), source: 'pulsepoint', title: 'A', description: '', status: 'active', metadata: {} },
+      { id: 'bulk-2', regionId: 'dc', type: 'crime', severity: 2, location: { lat: 38.9, lng: -77 }, timestamp: new Date().toISOString(), updatedAt: new Date().toISOString(), source: 'dc-crime', title: 'B', description: '', status: 'active', metadata: {} },
+    ]);
+    expect(updates - baseline).toBe(1); // ONE store update for the batch
+    expect(get(incidents).size).toBeGreaterThanOrEqual(2);
+
+    clearIncidents(['bulk-1', 'bulk-2']);
+    expect(updates - baseline).toBe(2);
+    expect(get(incidents).has('bulk-1')).toBe(false);
+    unsub();
+  });
+
+  it('empty batches are no-ops', async () => {
+    const { upsertIncidents, clearIncidents, incidents } = await import('./incidents');
+    let updates = 0;
+    const unsub = incidents.subscribe(() => updates++);
+    const baseline = updates;
+    upsertIncidents([]);
+    clearIncidents([]);
+    expect(updates - baseline).toBe(0);
+    unsub();
+  });
+});

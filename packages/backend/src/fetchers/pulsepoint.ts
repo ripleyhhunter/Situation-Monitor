@@ -434,7 +434,6 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
   }
 
   private async normalizeIncident(raw: ParsedIncident, _index: number): Promise<Incident> {
-    const now = new Date().toISOString();
     const typeInfo = this.getTypeInfo(raw.type);
 
     const stableId = this.generateStableId(raw.address, raw.type, raw.time);
@@ -456,7 +455,11 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
         address: raw.address || undefined,
       },
       timestamp: this.parseTime(raw.time),
-      updatedAt: now,
+      // Feed-derived and STABLE across scrapes: dispatch time plus a
+      // deterministic fingerprint of the fields that actually change
+      // (status, responding units). Stamping wall-clock `now` here re-sent
+      // every PulsePoint incident to every client on each 2-minute scrape.
+      updatedAt: this.contentVersion(raw),
       regionId: this.agency.regionId,
       source: 'pulsepoint',
       title: `${this.agency.titlePrefix}: ${raw.type}`,
@@ -583,6 +586,24 @@ export class PulsePointFetcher extends BaseFetcher<Incident> {
     }
 
     return new Date().toISOString();
+  }
+
+  /**
+   * Deterministic sub-minute offset on the dispatch time, derived from the
+   * mutable fields: same content -> same updatedAt (no rebroadcast), a
+   * status flip or unit change -> new updatedAt (one rebroadcast).
+   */
+  private contentVersion(raw: { time?: string; status?: string; units?: unknown }): string {
+    // No parseable time -> anchor at epoch, NOT wall-clock: parseTime('')
+    // falls back to `now`, which would re-version (and rebroadcast) the
+    // incident on every scrape — the exact churn this fingerprint removes.
+    const base = raw.time ? Date.parse(this.parseTime(raw.time)) : 0;
+    const content = `${raw.status ?? ''}|${raw.units ?? ''}`;
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      hash = (hash * 31 + content.charCodeAt(i)) >>> 0;
+    }
+    return new Date((Number.isNaN(base) ? 0 : base) + (hash % 60000)).toISOString();
   }
 
   private buildDescription(raw: ParsedIncident): string {
