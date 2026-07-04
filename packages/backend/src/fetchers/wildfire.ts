@@ -62,6 +62,7 @@ export interface WfigsFeature {
 interface WfigsResponse {
   type?: 'FeatureCollection';
   features?: WfigsFeature[];
+  properties?: { exceededTransferLimit?: boolean };
 }
 
 export interface WildfireFetcherOptions {
@@ -93,12 +94,15 @@ export function normalizeWfigsFeature(feature: WfigsFeature, regionId: RegionId)
   const category = (props.IncidentTypeCategory ?? 'WF').toUpperCase();
   const acres = props.IncidentSize ?? props.DiscoveryAcres ?? 0;
   const name = props.IncidentName?.trim() || 'Unnamed fire';
-  const discovered = props.FireDiscoveryDateTime;
   const modified = props.ModifiedOnDateTime_dt;
 
   // updatedAt must come from the feed (ModifiedOnDateTime_dt), never
   // wall-clock now — the aggregator diffs on it to decide re-broadcast.
-  if (typeof modified !== 'number' || typeof discovered !== 'number') return null;
+  // A record without it is dropped (the caller logs the count); a missing
+  // discovery date just falls back to modified — still feed-derived, and
+  // dropping a live fire over it would trigger a false cross-clear.
+  if (typeof modified !== 'number') return null;
+  const discovered = typeof props.FireDiscoveryDateTime === 'number' ? props.FireDiscoveryDateTime : modified;
 
   const isRx = category === 'RX';
   const title = isRx ? `Prescribed Fire: ${name}` : `Wildfire: ${name}`;
@@ -113,7 +117,9 @@ export function normalizeWfigsFeature(feature: WfigsFeature, regionId: RegionId)
   if (props.POOCounty) parts.push(`${props.POOCounty} County${props.POOState ? `, ${String(props.POOState).replace('US-', '')}` : ''}`);
   if (props.IncidentShortDescription) parts.push(props.IncidentShortDescription);
 
-  const fireId = props.UniqueFireIdentifier || `${feature.id ?? `${coords[1]},${coords[0]}`}`;
+  // UniqueFireIdentifier is IRWIN-stable; the coordinate fallback survives
+  // NIFC's periodic truncate-and-reload (ArcGIS OBJECTIDs do not).
+  const fireId = props.UniqueFireIdentifier || `${coords[1].toFixed(5)},${coords[0].toFixed(5)}`;
 
   return {
     id: `wfigs-${fireId}`,
@@ -133,6 +139,9 @@ export function normalizeWfigsFeature(feature: WfigsFeature, regionId: RegionId)
     status: 'active',
     category: isRx ? 'prescribed-fire' : 'wildfire',
     metadata: {
+      // Ongoing situation: exempt from the frontend's event-time filter —
+      // a fire discovered weeks ago is still burning now.
+      ongoing: true,
       acres,
       percentContained: props.PercentContained,
       incidentTypeCategory: category,
@@ -178,11 +187,20 @@ export class WildfireFetcher extends BaseFetcher<Incident> {
       // would clear every active fire. Contract drift must be a failure.
       throw new Error('WFIGS: unexpected response shape (no features array)');
     }
+    if (response.properties?.exceededTransferLimit) {
+      // A truncated snapshot would silently cross-clear the tail.
+      throw new Error('WFIGS: response truncated (exceededTransferLimit)');
+    }
 
     const incidents: Incident[] = [];
+    let dropped = 0;
     for (const feature of response.features) {
       const incident = normalizeWfigsFeature(feature, this.regionId);
       if (incident) incidents.push(incident);
+      else dropped++;
+    }
+    if (dropped > 0) {
+      logger.warn(`Wildfire (${this.regionId}): dropped ${dropped} feature(s) missing geometry or ModifiedOnDateTime`);
     }
 
     logger.debug(`Wildfire (${this.regionId}): ${incidents.length} current incidents in envelope`);

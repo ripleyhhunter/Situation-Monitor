@@ -55,10 +55,25 @@ describe('normalizeWfigsFeature', () => {
     expect(incident!.severity).toBe(2);
   });
 
-  it('drops features without geometry or feed timestamps', () => {
+  it('drops features without geometry or ModifiedOnDateTime (never defaults updatedAt to now)', () => {
     expect(normalizeWfigsFeature(mkFeature({}, null), 'boise')).toBeNull();
     expect(normalizeWfigsFeature(mkFeature({ ModifiedOnDateTime_dt: null }), 'boise')).toBeNull();
-    expect(normalizeWfigsFeature(mkFeature({ FireDiscoveryDateTime: null }), 'boise')).toBeNull();
+  });
+
+  it('falls back to ModifiedOnDateTime for a missing discovery date instead of dropping a live fire', () => {
+    const incident = normalizeWfigsFeature(mkFeature({ FireDiscoveryDateTime: null }), 'boise');
+    expect(incident).not.toBeNull();
+    expect(incident!.timestamp).toBe(new Date(MODIFIED).toISOString());
+    expect(incident!.updatedAt).toBe(new Date(MODIFIED).toISOString());
+  });
+
+  it('marks fires as ongoing so the frontend event-time filter exempts them', () => {
+    expect(normalizeWfigsFeature(mkFeature(), 'boise')!.metadata.ongoing).toBe(true);
+  });
+
+  it('uses a coordinate id when UniqueFireIdentifier is missing (OBJECTIDs are reload-unstable)', () => {
+    const incident = normalizeWfigsFeature(mkFeature({ UniqueFireIdentifier: null }), 'boise');
+    expect(incident!.id).toBe('wfigs-44.05000,-116.40000');
   });
 
   it('falls back to DiscoveryAcres then zero for size', () => {
@@ -81,5 +96,27 @@ describe('wildfireSeverity', () => {
     expect(wildfireSeverity(10, 'WF')).toBe(3);
     expect(wildfireSeverity(100, 'WF')).toBe(4);
     expect(wildfireSeverity(1000, 'WF')).toBe(5);
+  });
+});
+
+describe('WildfireFetcher contract-drift guard', () => {
+  it('throws (never returns []) when the response has no features array or is truncated', async () => {
+    const { WildfireFetcher } = await import('./wildfire.js');
+    const fetcher = new WildfireFetcher({
+      regionId: 'boise',
+      bounds: { lamin: 42.5, lamax: 45.0, lomin: -117.5, lomax: -114.5 },
+    });
+    const call = (body: unknown) => {
+      (fetcher as unknown as { httpGet: () => Promise<unknown> }).httpGet = async () => body;
+      return (fetcher as unknown as { fetchFromApi: () => Promise<unknown> }).fetchFromApi();
+    };
+
+    await expect(call({})).rejects.toThrow('unexpected response shape');
+    await expect(call({ error: { code: 400 } })).rejects.toThrow('unexpected response shape');
+    await expect(
+      call({ features: [], properties: { exceededTransferLimit: true } })
+    ).rejects.toThrow('truncated');
+    // A genuinely empty envelope is a valid snapshot, not an error.
+    await expect(call({ features: [] })).resolves.toEqual([]);
   });
 });
