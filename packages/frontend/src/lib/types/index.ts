@@ -28,6 +28,8 @@ export type DataSource =
   | 'itd-wzdx'
   | 'achd'
   // Shared
+  | 'usgs-quake'
+  | 'nws-gauge'
   | 'nws'
   | 'airnow'
   | 'openmhz'

@@ -507,6 +507,7 @@ class AggregatorService {
   private cleanupStaleIncidents(): void {
     const now = Date.now();
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
     const SIXTY_DAYS = 60 * 24 * 60 * 60 * 1000;
 
@@ -520,6 +521,7 @@ class AggregatorService {
       'bpd-crime': SIXTY_DAYS, // BPD feed lags ~1 month behind real time
       'ada-crime': THIRTY_DAYS, // matches the fetcher's 30-day window
       'dc-shotspotter': THIRTY_DAYS,
+      'usgs-quake': SEVEN_DAYS, // matches the fetcher's rolling 7-day window
       'default': TWENTY_FOUR_HOURS,
     };
 

@@ -15,6 +15,8 @@ import { openMHzFetcher } from '../fetchers/openmhz.js';
 import { dcFireEMSTwitterFetcher } from '../fetchers/dcfireems-twitter.js';
 import { PulsePointFetcher } from '../fetchers/pulsepoint.js';
 import { WildfireFetcher } from '../fetchers/wildfire.js';
+import { UsgsQuakesFetcher } from '../fetchers/usgs-quakes.js';
+import { NwsGaugesFetcher } from '../fetchers/nws-gauges.js';
 import { NWSWeatherFetcher } from '../fetchers/nws-weather.js';
 import { CurrentWeatherFetcher } from '../fetchers/current-weather.js';
 import { AirNowFetcher } from '../fetchers/airnow.js';
@@ -79,7 +81,7 @@ export const dcRegion: RegionPack = {
 
   nwsZones: DC_NWS_ZONES,
 
-  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs'],
+  sourcesWithCompleteListing: ['mdchart', 'dc-traffic', 'wmata', 'alertdc', 'wfigs', 'nws-gauge'],
 
   cameraFetchers: [
     mdchartCamerasFetcher,
@@ -109,6 +111,13 @@ export const dcRegion: RegionPack = {
     new WildfireFetcher({
       regionId: 'dc',
       bounds: { lamin: 38.3, lamax: 39.5, lomin: -77.7, lomax: -76.3 },
+    }),
+    // Rarely non-empty here (~1 event/30d in 200 km) — honestly quiet.
+    new UsgsQuakesFetcher({ regionId: 'dc', lat: DC_CENTER.lat, lng: DC_CENTER.lng }),
+    // Potomac (Little Falls, Georgetown, Alexandria), Anacostia, Rock Creek.
+    new NwsGaugesFetcher({
+      regionId: 'dc',
+      bbox: { xmin: -77.4, ymin: 38.7, xmax: -76.8, ymax: 39.1 },
     }),
   ],
 
