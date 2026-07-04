@@ -128,15 +128,35 @@
     try {
       console.log('MapContainer: Starting initialization...');
       
-      // Dynamically import Leaflet
-      L = await import('leaflet');
+      // Dynamically import Leaflet. The namespace object a dynamic import
+      // returns can be FROZEN in production builds (Vite's _mergeNamespaces
+      // helper — which chunk arrangement triggers it is build-roulette),
+      // and the plugins below attach themselves to window.L at module
+      // evaluation. Writing to a frozen namespace threw "Cannot add
+      // property MarkerClusterGroup, object is not extensible" and killed
+      // the entire map — so guarantee plugins get a mutable L.
+      const leafletModule = (await import('leaflet')) as unknown as Record<string, unknown> & { default?: unknown };
+      const leafletExports = (leafletModule.default ?? leafletModule) as Record<string, unknown>;
+      L = (Object.isExtensible(leafletExports) ? leafletExports : { ...leafletExports }) as unknown as typeof import('leaflet');
       console.log('MapContainer: Leaflet imported', L);
-      
-      // Set global L for plugins that need it (like leaflet.heat)
+
+      // Global L for plugins (leaflet.markercluster's bundled global
+      // branch, leaflet.heat) — guaranteed mutable per above.
       (window as any).L = L;
-      
-      const markerClusterModule = await import('leaflet.markercluster');
-      const MarkerClusterGroup = (markerClusterModule as any).MarkerClusterGroup || (markerClusterModule as any).default?.MarkerClusterGroup;
+
+      // A plugin failure must never take down the whole map — clustering
+      // degrades to plain layer groups instead.
+      let MarkerClusterGroup: any = null;
+      try {
+        const markerClusterModule = (await import('leaflet.markercluster')) as any;
+        MarkerClusterGroup =
+          markerClusterModule?.MarkerClusterGroup ||
+          markerClusterModule?.default?.MarkerClusterGroup ||
+          (window as any).L?.MarkerClusterGroup ||
+          null;
+      } catch (e) {
+        console.error('MapContainer: leaflet.markercluster failed to load — rendering unclustered:', e);
+      }
       console.log('MapContainer: MarkerCluster imported', MarkerClusterGroup);
 
       // Initialize map at the current region's center.
@@ -185,7 +205,10 @@
         map.addLayer(incidentMarkers);
         console.log('MapContainer: Incident markers layer added');
       } else {
-        console.error('MapContainer: MarkerClusterGroup not available');
+        // Degraded mode: unclustered incident markers beat no map at all.
+        incidentMarkers = L.layerGroup() as unknown as Leaflet.MarkerClusterGroup;
+        map.addLayer(incidentMarkers);
+        console.error('MapContainer: MarkerClusterGroup not available — incidents render unclustered');
       }
 
       // Cameras get their own cluster group: several hundred always-on DOM
@@ -546,8 +569,14 @@
     }
 
     // Batch cluster operations: one re-cluster per update, not per marker.
-    if (toRemove.length > 0) incidentMarkers.removeLayers(toRemove);
-    if (toAdd.length > 0) incidentMarkers.addLayers(toAdd);
+    // (Plain-LayerGroup fallback lacks the bulk API — degrade per-layer.)
+    if (typeof incidentMarkers.removeLayers === 'function') {
+      if (toRemove.length > 0) incidentMarkers.removeLayers(toRemove);
+      if (toAdd.length > 0) incidentMarkers.addLayers(toAdd);
+    } else {
+      for (const marker of toRemove) incidentMarkers.removeLayer(marker);
+      for (const marker of toAdd) incidentMarkers.addLayer(marker);
+    }
   }
 
   function buildCameraMarker(camera: Camera): Leaflet.Marker {
